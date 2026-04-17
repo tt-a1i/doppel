@@ -100,22 +100,29 @@ func Run(ctx context.Context, plan *ClonePlan, ex macos.Execer, events chan<- St
 		emit("entitlements", StageOK, fmt.Sprintf("filtered (%d changes)", len(changes)))
 	}
 
-	// 4. Discover signables (target when available, else source for dry-run count)
+	// 4. Discover: enumerate all signables (for reporting)
 	emit("discover", StageStart, "walking bundle")
 	scanRoot := plan.TargetApp
 	if plan.DryRun {
 		scanRoot = plan.SourceApp
 	}
-	items, _ := signing.Discover(scanRoot)
-	result.Items = items
-	emit("discover", StageOK, fmt.Sprintf("%d signable item(s)", len(items)))
+	allItems, _ := signing.Discover(scanRoot)
+	result.Items = allItems
 
-	// 5. Deep resign
+	// Build the *re-sign set*: only bundles whose Info.plist we mutated.
+	// Nested frameworks / XPC / plugins we didn't touch keep their vendor
+	// signatures — this is what preserves Library Validation compatibility.
+	// Re-signing them ad-hoc drops the Team ID and breaks dylib loading at
+	// launch on modern macOS.
+	toSign := buildResignSet(plan, allItems)
+	emit("discover", StageOK, fmt.Sprintf("%d found · %d need re-signing", len(allItems), len(toSign)))
+
+	// 5. Re-sign only mutated bundles
 	emit("resign", StageStart, "deepest-first, ad-hoc")
 	if plan.DryRun {
 		emit("resign", StageSkip, "dry-run")
 	} else {
-		err := signing.DeepResign(ctx, ex, items, signing.ResignOptions{
+		err := signing.DeepResign(ctx, ex, toSign, signing.ResignOptions{
 			Entitlements:  ent,
 			Force:         true,
 			TimestampNone: true,
@@ -124,7 +131,7 @@ func Run(ctx context.Context, plan *ClonePlan, ex macos.Execer, events chan<- St
 			emit("resign", StageError, err.Error())
 			return result, err
 		}
-		emit("resign", StageOK, fmt.Sprintf("%d item(s) signed", len(items)))
+		emit("resign", StageOK, fmt.Sprintf("%d item(s) signed", len(toSign)))
 	}
 
 	// 6. Verify
@@ -141,6 +148,9 @@ func Run(ctx context.Context, plan *ClonePlan, ex macos.Execer, events chan<- St
 		case vr != nil && len(vr.Errors) > 0:
 			emit("verify", StageError, vr.Errors[0])
 			return result, fmt.Errorf("verify failed: %s", vr.Errors[0])
+		case vr != nil && vr.LaunchTest != nil && vr.LaunchTest.Survived:
+			emit("verify", StageOK, fmt.Sprintf("signature valid · launch test survived %.1fs",
+				float64(vr.LaunchTest.SurvivedMs)/1000))
 		case vr != nil && len(vr.Warnings) > 0:
 			emit("verify", StageWarn, vr.Warnings[0])
 		default:
@@ -178,4 +188,24 @@ func MutatePlists(plan *ClonePlan) error {
 		}
 	}
 	return nil
+}
+
+// buildResignSet returns only the signables whose on-disk contents we
+// actually mutated — the main bundle (plist changed) plus any helper app
+// whose bundle ID we rewrote. Untouched frameworks keep their vendor
+// signatures so Library Validation / hardened-runtime loads still work.
+func buildResignSet(plan *ClonePlan, all []signing.SignableItem) []signing.SignableItem {
+	// Collect absolute paths we rewrote.
+	rewritten := map[string]bool{}
+	for _, r := range plan.HelperRewrites {
+		rewritten[filepath.Join(plan.TargetApp, r.RelativePath)] = true
+	}
+	var out []signing.SignableItem
+	for _, it := range all {
+		if it.Kind == signing.KindMainBundle || rewritten[it.Path] {
+			out = append(out, it)
+		}
+	}
+	// Preserve deepest-first order from Discover.
+	return out
 }

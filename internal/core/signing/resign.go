@@ -41,7 +41,10 @@ func DeepResign(ctx context.Context, ex macos.Execer, items []SignableItem, opts
 			Identity:      "-",
 			Force:         opts.Force,
 			TimestampNone: opts.TimestampNone,
-			PreserveFlags: true, // keep hardened-runtime etc.
+			// Intentionally NOT preserving flags: hardened runtime on an
+			// ad-hoc-signed clone (no Team ID) makes AMFI refuse the launch.
+			// Dropping the runtime flag is what makes clones actually run.
+			PreserveFlags: false,
 		}
 		if item.Kind == KindMainBundle && entFile != "" {
 			signOpts.EntitlementsFile = entFile

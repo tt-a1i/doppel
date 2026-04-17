@@ -59,13 +59,17 @@ func LaunchTest(ctx context.Context, ex Execer, appPath, bundleID string, timeou
 
 	start := time.Now()
 	var pid int
-	// Allow up to half the timeout for the process to register in Launch
-	// Services. lsappinfo is more reliable than pgrep because it uses the
-	// same database `open` / Dock / Activity Monitor consult.
+	// Allow up to half the timeout for the process to register. macOS pgrep
+	// and lsappinfo are both flaky for freshly-launched GUI apps, so we scan
+	// `ps -axo pid,command` for the target executable path — that's what
+	// Activity Monitor uses and it reliably finds GUI processes.
+	exePath := filepath.Join(appPath, "Contents", "MacOS") + "/"
 	for time.Since(start) < timeout/2 {
 		time.Sleep(250 * time.Millisecond)
-		pid = findPIDByBundleID(ctx, ex, bundleID)
-		if pid > 0 {
+		if pid = findPIDByExePath(ctx, ex, exePath); pid > 0 {
+			break
+		}
+		if pid = findPIDByBundleID(ctx, ex, bundleID); pid > 0 {
 			break
 		}
 	}
@@ -107,6 +111,24 @@ func LaunchTest(ctx context.Context, ex Execer, appPath, bundleID string, timeou
 }
 
 var lsappinfoPIDRE = regexp.MustCompile(`"pid"\s*=\s*(\d+)`)
+
+// findPIDByExePath scans `ps -axo pid,command` for the first process whose
+// command contains exePathPrefix. Most reliable on macOS for GUI apps —
+// pgrep -f sometimes misses LaunchServices-launched processes.
+func findPIDByExePath(ctx context.Context, ex Execer, exePathPrefix string) int {
+	stdout, _, _, _ := ex.Run(ctx, "ps", "-axo", "pid=,command=")
+	for _, line := range strings.Split(string(stdout), "\n") {
+		if !strings.Contains(line, exePathPrefix) {
+			continue
+		}
+		trimmed := strings.TrimLeft(line, " ")
+		var pid int
+		if _, err := fmt.Sscanf(trimmed, "%d", &pid); err == nil && pid > 0 {
+			return pid
+		}
+	}
+	return 0
+}
 
 func findPIDByBundleID(ctx context.Context, ex Execer, bundleID string) int {
 	// lsappinfo info -only pid <bundleID> → e.g.  "pid"=31234
