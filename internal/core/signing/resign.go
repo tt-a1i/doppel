@@ -41,6 +41,7 @@ func DeepResign(ctx context.Context, ex macos.Execer, items []SignableItem, opts
 			Identity:      "-",
 			Force:         opts.Force,
 			TimestampNone: opts.TimestampNone,
+			PreserveFlags: true, // keep hardened-runtime etc.
 		}
 		if item.Kind == KindMainBundle && entFile != "" {
 			signOpts.EntitlementsFile = entFile

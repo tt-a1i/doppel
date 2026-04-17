@@ -81,7 +81,19 @@ func Run(ctx context.Context, plan *ClonePlan, ex macos.Execer, events chan<- St
 	if err != nil {
 		emit("entitlements", StageWarn, "extraction failed: "+err.Error())
 		result.Warnings = append(result.Warnings, "entitlements extraction failed: "+err.Error())
-	} else if ent == nil {
+	}
+	// On hardened-runtime sources, ad-hoc re-sign triggers library
+	// validation that refuses all dylibs (since ad-hoc has no Team ID).
+	// Add disable-library-validation so the clone can actually launch.
+	meta, _ := macos.GetSigningMeta(ctx, ex, plan.SourceApp)
+	if meta != nil && meta.HardenedRuntime {
+		if ent == nil {
+			ent = plistops.Plist{}
+		}
+		ent["com.apple.security.cs.disable-library-validation"] = true
+		changes = append(changes, "added:disable-library-validation")
+	}
+	if ent == nil {
 		emit("entitlements", StageSkip, "source has no entitlements")
 	} else {
 		result.EntChanges = changes
@@ -120,7 +132,10 @@ func Run(ctx context.Context, plan *ClonePlan, ex macos.Execer, events chan<- St
 	if plan.DryRun {
 		emit("verify", StageSkip, "dry-run")
 	} else {
-		vr, _ := verify.Verify(ctx, plan.TargetApp, verify.VerifyOptions{RunSPCTL: true}, ex)
+		vr, _ := verify.Verify(ctx, plan.TargetApp, verify.VerifyOptions{
+			RunSPCTL:      true,
+			RunLaunchTest: plan.LaunchTest,
+		}, ex)
 		result.Verify = vr
 		switch {
 		case vr != nil && len(vr.Errors) > 0:

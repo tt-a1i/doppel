@@ -20,6 +20,7 @@ type PlanOptions struct {
 	DisplayName string // optional; default Name
 	DryRun      bool
 	Force       bool // if true, pre-existing target is deleted before copy
+	LaunchTest  bool // if true, verify stage briefly launches the clone
 }
 
 // HelperRewrite describes a nested bundle whose CFBundleIdentifier should be
@@ -43,6 +44,7 @@ type ClonePlan struct {
 	DisplayNameAfter string
 	DryRun           bool
 	Force            bool
+	LaunchTest       bool
 	HelperRewrites   []HelperRewrite
 }
 
@@ -110,6 +112,7 @@ func DerivePlan(opts PlanOptions) (*ClonePlan, error) {
 		DisplayNameAfter: displayName,
 		DryRun:           opts.DryRun,
 		Force:            opts.Force,
+		LaunchTest:       opts.LaunchTest,
 		HelperRewrites:   computeHelperRewrites(src, report.Identity.BundleID, opts.BundleID),
 	}
 	return plan, nil

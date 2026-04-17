@@ -22,14 +22,16 @@ type Finding struct {
 }
 
 type Input struct {
-	AppPath        string
-	Identity       appinfo.AppIdentity
-	HasSignature   bool
-	ExecutableOK   bool
-	SignableItems  []signing.SignableItem
-	Entitlements   plistops.Plist
-	CodesignOK     bool
-	CodesignStderr string
+	AppPath         string
+	Identity        appinfo.AppIdentity
+	HasSignature    bool
+	ExecutableOK    bool
+	SignableItems   []signing.SignableItem
+	Entitlements    plistops.Plist
+	CodesignOK      bool
+	CodesignStderr  string
+	HardenedRuntime bool
+	SourceTeamID    string
 }
 
 var rules = []func(Input) *Finding{
@@ -40,6 +42,7 @@ var rules = []func(Input) *Finding{
 	ruleElectron,
 	ruleLoginItem,
 	ruleUnsigned,
+	ruleHardenedRuntime,
 }
 
 func Diagnose(in Input) []Finding {
@@ -66,6 +69,7 @@ func DiagnoseApp(ctx context.Context, ex macos.Execer, appPath string) ([]Findin
 		_, _ = plist.Unmarshal(entBytes, &ent)
 	}
 	cs, _ := macos.Verify(ctx, ex, appPath, true, true)
+	meta, _ := macos.GetSigningMeta(ctx, ex, appPath)
 
 	in := Input{
 		AppPath:       appPath,
@@ -78,6 +82,10 @@ func DiagnoseApp(ctx context.Context, ex macos.Execer, appPath string) ([]Findin
 	if cs != nil {
 		in.CodesignOK = cs.OK
 		in.CodesignStderr = cs.Stderr
+	}
+	if meta != nil {
+		in.HardenedRuntime = meta.HardenedRuntime
+		in.SourceTeamID = meta.TeamID
 	}
 	return Diagnose(in), nil
 }
@@ -182,6 +190,20 @@ func ruleLoginItem(in Input) *Finding {
 		}
 	}
 	return nil
+}
+
+func ruleHardenedRuntime(in Input) *Finding {
+	if !in.HardenedRuntime {
+		return nil
+	}
+	return &Finding{
+		Code:     "hardened_runtime",
+		Title:    "Source app uses hardened runtime",
+		Severity: "info",
+		Category: "signature",
+		Evidence: []string{"codesign flags include (runtime)"},
+		Fix:      "Apps with hardened runtime sometimes verify their own signature at launch and can abort on clones. Not a guarantee — pass --launch-test to confirm whether the clone actually runs.",
+	}
 }
 
 func ruleUnsigned(in Input) *Finding {

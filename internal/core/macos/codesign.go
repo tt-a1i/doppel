@@ -3,6 +3,7 @@ package macos
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -39,6 +40,11 @@ type SignOptions struct {
 	EntitlementsFile string // optional path
 	Force            bool
 	TimestampNone    bool
+	// PreserveFlags carries original code-directory flags (hardened runtime,
+	// library-validation, etc.) through the re-sign. Strongly recommended on
+	// modern macOS — without it, dyld will refuse to launch hardened-runtime
+	// apps once the flag is stripped.
+	PreserveFlags bool
 }
 
 func Sign(ctx context.Context, ex Execer, path string, opts SignOptions) error {
@@ -49,6 +55,9 @@ func Sign(ctx context.Context, ex Execer, path string, opts SignOptions) error {
 	args = append(args, "--sign", opts.Identity)
 	if opts.TimestampNone {
 		args = append(args, "--timestamp=none")
+	}
+	if opts.PreserveFlags {
+		args = append(args, "--preserve-metadata=flags")
 	}
 	if opts.EntitlementsFile != "" {
 		args = append(args, "--entitlements", opts.EntitlementsFile)
@@ -91,4 +100,44 @@ func containsAny(s string, subs ...string) bool {
 		}
 	}
 	return false
+}
+
+// SigningMeta captures a few codesign flags that matter for predicting
+// clone compatibility. Populate via GetSigningMeta; a missing/unsigned app
+// yields a zero-value struct, not an error.
+type SigningMeta struct {
+	HardenedRuntime bool
+	TeamID          string
+	Identifier      string
+	Adhoc           bool
+}
+
+var codesignFlagsLine = regexp.MustCompile(`CodeDirectory v=\S+ size=\S+ flags=\S+\((.*?)\)`)
+var codesignTeamLine = regexp.MustCompile(`TeamIdentifier=(\S+)`)
+var codesignIDLine = regexp.MustCompile(`Identifier=(\S+)`)
+
+func GetSigningMeta(ctx context.Context, ex Execer, appPath string) (*SigningMeta, error) {
+	_, stderr, code, err := ex.Run(ctx, "codesign", "-d", "--verbose=4", appPath)
+	if err != nil {
+		return nil, err
+	}
+	meta := &SigningMeta{}
+	if code != 0 {
+		return meta, nil
+	}
+	s := string(stderr)
+	if m := codesignFlagsLine.FindStringSubmatch(s); len(m) == 2 {
+		flags := m[1]
+		meta.HardenedRuntime = strings.Contains(flags, "runtime")
+		meta.Adhoc = strings.Contains(flags, "adhoc")
+	}
+	if m := codesignTeamLine.FindStringSubmatch(s); len(m) == 2 {
+		if m[1] != "not" {
+			meta.TeamID = m[1]
+		}
+	}
+	if m := codesignIDLine.FindStringSubmatch(s); len(m) == 2 {
+		meta.Identifier = m[1]
+	}
+	return meta, nil
 }

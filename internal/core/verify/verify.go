@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/tt-a1i/appclone/internal/core/appinfo"
 	"github.com/tt-a1i/appclone/internal/core/macos"
@@ -22,14 +23,19 @@ type VerifyReport struct {
 }
 
 type LaunchTestResult struct {
-	Attempted bool
-	Launched  bool
-	Note      string
+	Attempted       bool
+	Launched        bool
+	Survived        bool
+	SurvivedMs      int64
+	CrashSummary    string
+	CrashReportPath string
+	Note            string
 }
 
 type VerifyOptions struct {
 	RunSPCTL      bool
 	RunLaunchTest bool
+	LaunchTimeout time.Duration
 }
 
 // Verify runs structural + cryptographic checks on appPath. It never
@@ -76,9 +82,31 @@ func Verify(ctx context.Context, appPath string, opts VerifyOptions, ex macos.Ex
 	}
 
 	if opts.RunLaunchTest {
+		timeout := opts.LaunchTimeout
+		if timeout <= 0 {
+			timeout = 5 * time.Second
+		}
+		lt := macos.LaunchTest(ctx, ex, appPath, inspected.Identity.BundleID, timeout)
 		report.LaunchTest = &LaunchTestResult{
-			Attempted: false,
-			Note:      "launch test disabled in v1 — use Finder/open manually to smoke-test",
+			Attempted:       lt.Attempted,
+			Launched:        lt.Launched,
+			Survived:        lt.Survived,
+			SurvivedMs:      lt.SurvivedMs,
+			CrashSummary:    lt.CrashSummary,
+			CrashReportPath: lt.CrashReportPath,
+			Note:            lt.Note,
+		}
+		switch {
+		case lt.Launched && !lt.Survived:
+			msg := "launch test: process exited early"
+			if lt.CrashSummary != "" {
+				msg = "launch test: crashed — " + lt.CrashSummary
+			}
+			report.Errors = append(report.Errors, msg)
+		case !lt.Launched:
+			report.Warnings = append(report.Warnings, "launch test: `open` did not start the app: "+lt.Note)
+		case lt.Survived:
+			// happy path — nothing to add
 		}
 	}
 

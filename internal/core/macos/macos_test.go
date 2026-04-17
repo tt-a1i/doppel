@@ -35,12 +35,12 @@ func TestVerify_Failure(t *testing.T) {
 func TestSign_Success(t *testing.T) {
 	ex := &FakeExecer{Default: FakeResponse{ExitCode: 0}}
 	err := Sign(context.Background(), ex, "/tmp/foo.app", SignOptions{
-		Identity: "-", Force: true, TimestampNone: true,
+		Identity: "-", Force: true, TimestampNone: true, PreserveFlags: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantArgs := []string{"--force", "--sign", "-", "--timestamp=none", "/tmp/foo.app"}
+	wantArgs := []string{"--force", "--sign", "-", "--timestamp=none", "--preserve-metadata=flags", "/tmp/foo.app"}
 	if !reflect.DeepEqual(ex.Calls[0].Args, wantArgs) {
 		t.Errorf("args = %v, want %v", ex.Calls[0].Args, wantArgs)
 	}

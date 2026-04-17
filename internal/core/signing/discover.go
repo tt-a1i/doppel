@@ -65,8 +65,8 @@ func discoverAt(bundlePath string, depth int) []SignableItem {
 	items = append(items, scanDir(filepath.Join(contents, "Frameworks"), ".framework", KindFramework, depth+1)...)
 	items = append(items, scanDir(filepath.Join(contents, "XPCServices"), ".xpc", KindXPCService, depth+1)...)
 
-	// Plugins: .bundle, .appex, or .app containers
-	for _, suffix := range []string{".bundle", ".appex", ".app"} {
+	// Plugins: .bundle, .appex, .plugin, or .app containers
+	for _, suffix := range []string{".bundle", ".appex", ".plugin", ".app"} {
 		items = append(items, scanDir(filepath.Join(contents, "PlugIns"), suffix, KindPlugin, depth+1)...)
 	}
 
