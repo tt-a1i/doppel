@@ -1,0 +1,6 @@
+/appclone
+/dist/
+*.test
+*.out
+.DS_Store
+.harnessed/
