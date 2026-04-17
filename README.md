@@ -31,21 +31,42 @@ Launches a full-screen picker that scans `/Applications`, `/Applications/Utiliti
 ### CLI
 
 ```bash
+# Enumerate installable apps (agent-friendly)
+appclone list
+appclone list --json
+
+# Inspect a specific bundle
 appclone inspect /Applications/cmux.app
 appclone inspect /Applications/cmux.app --json
 
+# Dry-run (derive plan, touch nothing)
+appclone clone /Applications/cmux.app --name cmux2 --bundle-id com.example.cmux2 --dry-run
+
+# Real clone
 appclone clone /Applications/cmux.app \
   --name cmux2 \
   --bundle-id com.example.cmux2 \
   --target /Applications/cmux2.app
 
-appclone clone /Applications/cmux.app --name cmux2 --bundle-id com.example.cmux2 --dry-run
+# Re-clone over an existing target (deletes target first; target must end in .app)
+appclone clone /Applications/cmux.app --name cmux2 --bundle-id com.example.cmux2 --force
 
 appclone verify /Applications/cmux2.app
 appclone doctor /Applications/cmux.app
 ```
 
 Global flags: `--json` (structured output), `--verbose`.
+Run `appclone <cmd> --help` for per-command flag lists.
+
+### Exit codes (for scripting)
+
+| Code | Meaning |
+|---|---|
+| 0 | OK |
+| 1 | general error |
+| 2 | invalid input (bad path, bad bundle id, target exists without `--force`, etc.) |
+| 3 | unsupported environment (not macOS) |
+| 4–9 | stage-specific failures: copy / plist / sign / verify / launch-test / inspect |
 
 ## How It Works
 
