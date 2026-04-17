@@ -131,9 +131,6 @@ var (
 	stepPendStyle   = lipgloss.NewStyle().Foreground(colorMuted)
 	stepSepStyle    = lipgloss.NewStyle().Foreground(colorMuted)
 
-	badgeSigned   = lipgloss.NewStyle().Foreground(colorOK).Bold(true).Render("●")
-	badgeUnsigned = lipgloss.NewStyle().Foreground(colorWarn).Render("○")
-
 	cardStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(colorMuted).
@@ -212,9 +209,11 @@ type appItem struct {
 func (i appItem) FilterValue() string { return i.name + " " + i.bundleID }
 
 func (i appItem) Title() string {
-	badge := badgeUnsigned
+	// NOTE: must stay plain-text — bubbles/list's fuzzy filter inserts
+	// highlight styles per-rune and mangles any ANSI already in the string.
+	badge := "○"
 	if i.signed {
-		badge = badgeSigned
+		badge = "●"
 	}
 	return fmt.Sprintf("%s  %s", badge, i.name)
 }
@@ -224,7 +223,11 @@ func (i appItem) Description() string {
 	if ver == "" {
 		ver = "—"
 	}
-	return fmt.Sprintf("%s  %s  v%s", strings.Repeat(" ", 3), i.bundleID, ver)
+	sig := "unsigned"
+	if i.signed {
+		sig = "signed"
+	}
+	return fmt.Sprintf("   %s  ·  %s  ·  v%s", i.bundleID, sig, ver)
 }
 
 func scanAppsCmd() tea.Cmd {
