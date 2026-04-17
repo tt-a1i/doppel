@@ -39,6 +39,17 @@ var stepLabels = []string{"Pick", "Configure", "Clone", "Done"}
 // Stage order drives the fixed progress panel.
 var stageOrder = []string{"copy", "plist", "entitlements", "discover", "resign", "verify"}
 
+// Friendly labels for the stage names shown in progress + result views.
+// Internal stage IDs (stageOrder) remain the same for JSON/CLI compatibility.
+var stageLabel = map[string]string{
+	"copy":         "Copy files",
+	"plist":        "Update identity",
+	"entitlements": "Adjust permissions",
+	"discover":     "Scan components",
+	"resign":       "Re-sign code",
+	"verify":       "Verify signature",
+}
+
 // ——— Messages ———————————————————————————————————————————————————————
 
 type appsLoadedMsg struct{ items []list.Item }
@@ -211,23 +222,22 @@ func (i appItem) FilterValue() string { return i.name + " " + i.bundleID }
 func (i appItem) Title() string {
 	// NOTE: must stay plain-text — bubbles/list's fuzzy filter inserts
 	// highlight styles per-rune and mangles any ANSI already in the string.
-	badge := "○"
-	if i.signed {
-		badge = "●"
-	}
-	return fmt.Sprintf("%s  %s", badge, i.name)
+	return i.name
 }
 
 func (i appItem) Description() string {
+	// Description is NOT filter-highlighted, so lipgloss ANSI is safe here.
 	ver := i.version
 	if ver == "" {
 		ver = "—"
 	}
-	sig := "unsigned"
+	var badge string
 	if i.signed {
-		sig = "signed"
+		badge = lipgloss.NewStyle().Foreground(colorOK).Render("✓ signed")
+	} else {
+		badge = lipgloss.NewStyle().Foreground(colorWarn).Render("! unsigned")
 	}
-	return fmt.Sprintf("   %s  ·  %s  ·  v%s", i.bundleID, sig, ver)
+	return fmt.Sprintf("%s   %s  ·  v%s", badge, i.bundleID, ver)
 }
 
 func scanAppsCmd() tea.Cmd {
@@ -523,25 +533,50 @@ func (m model) submitForm() tea.Cmd {
 	}
 }
 
-func (m model) previewFor(i int) string {
+// helpFor returns plain-English guidance for each field — always shown.
+func (m model) helpFor(i int) string {
 	switch i {
 	case fldName:
-		return "short label used to derive target path if Target is blank"
+		return "A short name for the clone. Also used to derive the target filename."
+	case fldBundleID:
+		return "Unique ID that tells macOS the clone is a different app from the original. Keep the com.x.y format."
+	case fldDisplay:
+		return "The name shown under the icon in Finder, Dock, and Launchpad. Optional — falls back to Name."
+	case fldTarget:
+		return "Where on disk to save the clone. Optional — defaults to /Applications/<Name>.app."
+	}
+	return ""
+}
+
+// previewFor returns a concrete "this is what will happen" line — only shown
+// when the field has a meaningful resolved value.
+func (m model) previewFor(i int) string {
+	switch i {
 	case fldBundleID:
 		v := valueOrPlaceholder(m.inputs[fldBundleID])
-		return fmt.Sprintf("clone bundle id → %s", v)
+		if v == "" {
+			return ""
+		}
+		return "→ " + v
 	case fldDisplay:
 		v := strings.TrimSpace(m.inputs[fldDisplay].Value())
 		if v == "" {
 			v = valueOrPlaceholder(m.inputs[fldName])
 		}
-		return fmt.Sprintf("CFBundleDisplayName → %s", v)
+		if v == "" {
+			return ""
+		}
+		return "→ shows as “" + v + "”"
 	case fldTarget:
 		v := strings.TrimSpace(m.inputs[fldTarget].Value())
 		if v == "" {
-			v = filepath.Join("/Applications", valueOrPlaceholder(m.inputs[fldName])+".app")
+			name := valueOrPlaceholder(m.inputs[fldName])
+			if name == "" {
+				return ""
+			}
+			v = filepath.Join("/Applications", name+".app")
 		}
-		return fmt.Sprintf("target path → %s", v)
+		return "→ " + v
 	}
 	return ""
 }
@@ -550,7 +585,11 @@ func (m model) viewForm() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("Configure clone"))
 	b.WriteString("\n")
-	b.WriteString(subtitleStyle.Render(fmt.Sprintf(
+	b.WriteString(subtitleStyle.Render(
+		"Makes a second copy of the app with a new identity so both can run side-by-side.",
+	))
+	b.WriteString("\n")
+	b.WriteString(faintStyle.Render(fmt.Sprintf(
 		"Source: %s  (%s)",
 		filepath.Base(m.selected.Identity.AppPath),
 		m.selected.Identity.BundleID,
@@ -565,8 +604,14 @@ func (m model) viewForm() string {
 		b.WriteString(label)
 		b.WriteString(m.inputs[i].View())
 		b.WriteString("\n")
-		b.WriteString(previewStyle.Render(m.previewFor(i)))
+		// Always-visible plain-English help
+		b.WriteString(previewStyle.Render(m.helpFor(i)))
 		b.WriteString("\n")
+		// Concrete preview only if we have one (saves a line per field)
+		if p := m.previewFor(i); p != "" {
+			b.WriteString(previewStyle.Render(p))
+			b.WriteString("\n")
+		}
 		if i < len(m.inputs)-1 {
 			b.WriteString("\n")
 		}
@@ -712,8 +757,12 @@ func (m model) viewStageRow(name string) string {
 		symbol = faintStyle.Render("—")
 		msg = faintStyle.Render(st.msg)
 	}
-	name = lipgloss.NewStyle().Width(13).Foreground(colorDim).Render(name)
-	return fmt.Sprintf(" %s  %s  %s  %s", symbol, name, msg, durStr)
+	label := stageLabel[name]
+	if label == "" {
+		label = name
+	}
+	label = lipgloss.NewStyle().Width(20).Foreground(colorDim).Render(label)
+	return fmt.Sprintf(" %s  %s  %s  %s", symbol, label, msg, durStr)
 }
 
 func renderBar(done, total int) string {
@@ -837,13 +886,19 @@ func (m model) viewResult() string {
 	if m.result != nil && m.result.Verify != nil {
 		b.WriteString("\n")
 		if m.result.Verify.Codesign != nil {
-			fmt.Fprintf(&b, "codesign: ok=%v\n", m.result.Verify.Codesign.OK)
+			if m.result.Verify.Codesign.OK {
+				b.WriteString(okStyle.Render("✓") + "  Signature check passed\n")
+			} else {
+				b.WriteString(errStyle.Render("✗") + "  Signature check failed\n")
+			}
 		}
 		if m.result.Verify.SPCTL != nil {
-			fmt.Fprintf(&b, "spctl:    accepted=%v  %s\n",
-				m.result.Verify.SPCTL.Accepted,
-				faintStyle.Render("(ad-hoc clones are typically rejected)"),
-			)
+			if m.result.Verify.SPCTL.Accepted {
+				b.WriteString(okStyle.Render("✓") + "  Gatekeeper accepts the clone\n")
+			} else {
+				b.WriteString(warnStyle.Render("⚠") + "  Gatekeeper will prompt on first launch\n")
+				b.WriteString(faintStyle.Render("   Normal for locally-signed clones. Right-click → Open the first time.\n"))
+			}
 		}
 	}
 
