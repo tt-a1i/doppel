@@ -21,6 +21,7 @@ func newCloneCmd() *cobra.Command {
 		bundleID    string
 		displayName string
 		dryRun      bool
+		force       bool
 	)
 	cmd := &cobra.Command{
 		Use:   "clone <app>",
@@ -33,6 +34,7 @@ func newCloneCmd() *cobra.Command {
 				bundleID:    bundleID,
 				displayName: displayName,
 				dryRun:      dryRun,
+				force:       force,
 			})
 		},
 	}
@@ -41,12 +43,13 @@ func newCloneCmd() *cobra.Command {
 	cmd.Flags().StringVar(&bundleID, "bundle-id", "", "new CFBundleIdentifier for the clone (required)")
 	cmd.Flags().StringVar(&displayName, "display-name", "", "CFBundleDisplayName for the clone (defaults to --name)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "derive plan and emit stages without touching disk")
+	cmd.Flags().BoolVar(&force, "force", false, "if target already exists, remove it first (path must end in .app)")
 	return cmd
 }
 
 type cloneFlags struct {
 	name, target, bundleID, displayName string
-	dryRun                              bool
+	dryRun, force                       bool
 }
 
 type stageJSON struct {
@@ -79,6 +82,7 @@ func runClone(appPath string, f cloneFlags) error {
 		BundleID:    f.bundleID,
 		DisplayName: f.displayName,
 		DryRun:      f.dryRun,
+		Force:       f.force,
 	})
 	if err != nil {
 		return err

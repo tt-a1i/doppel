@@ -2,6 +2,8 @@ package clone
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -31,6 +33,26 @@ func TestCopyBundle_DryRunSkipsExec(t *testing.T) {
 	}
 	if len(ex.Calls) != 0 {
 		t.Errorf("expected no calls in dry-run, got %+v", ex.Calls)
+	}
+}
+
+func TestCopyBundle_ForceRemovesExistingTarget(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "dst.app")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(target, "OLD")
+	if err := os.WriteFile(sentinel, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ex := &macos.FakeExecer{Default: macos.FakeResponse{ExitCode: 0}}
+	plan := &ClonePlan{SourceApp: "/tmp/src.app", TargetApp: target, Force: true}
+	if err := CopyBundle(context.Background(), plan, ex); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(sentinel); !os.IsNotExist(err) {
+		t.Errorf("expected existing target contents to be removed, got err=%v", err)
 	}
 }
 

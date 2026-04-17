@@ -34,6 +34,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&flagVerbose, "verbose", false, "emit extra detail")
 
 	rootCmd.AddCommand(
+		newListCmd(),
 		newInspectCmd(),
 		newCloneCmd(),
 		newVerifyCmd(),

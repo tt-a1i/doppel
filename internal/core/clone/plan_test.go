@@ -158,6 +158,39 @@ func TestDerivePlan_HelperRewritePrefix(t *testing.T) {
 	}
 }
 
+func TestDerivePlan_ForceAllowsExistingAppTarget(t *testing.T) {
+	src := mkSourceBundle(t, "com.example.app")
+	target := filepath.Join(t.TempDir(), "existing.app")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := DerivePlan(PlanOptions{
+		SourceApp: src, TargetApp: target,
+		Name: "x", BundleID: "com.x.y", Force: true,
+	})
+	if err != nil {
+		t.Fatalf("Force should allow existing target, got %v", err)
+	}
+	if !plan.Force {
+		t.Error("plan.Force not propagated")
+	}
+}
+
+func TestDerivePlan_ForceRejectsNonAppTarget(t *testing.T) {
+	src := mkSourceBundle(t, "com.example.app")
+	target := filepath.Join(t.TempDir(), "existing_not_app")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := DerivePlan(PlanOptions{
+		SourceApp: src, TargetApp: target,
+		Name: "x", BundleID: "com.x.y", Force: true,
+	})
+	if !errors.Is(err, apperr.ErrInvalidInput) {
+		t.Errorf("--force on non-.app should reject, got %v", err)
+	}
+}
+
 func TestDerivePlan_HelperEqualToParent(t *testing.T) {
 	src := mkSourceBundle(t, "com.example.app")
 	withHelper(t, src, "Same.app", "com.example.app")

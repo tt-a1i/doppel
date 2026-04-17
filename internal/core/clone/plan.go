@@ -19,6 +19,7 @@ type PlanOptions struct {
 	BundleID    string
 	DisplayName string // optional; default Name
 	DryRun      bool
+	Force       bool // if true, pre-existing target is deleted before copy
 }
 
 // HelperRewrite describes a nested bundle whose CFBundleIdentifier should be
@@ -41,6 +42,7 @@ type ClonePlan struct {
 	NameAfter        string
 	DisplayNameAfter string
 	DryRun           bool
+	Force            bool
 	HelperRewrites   []HelperRewrite
 }
 
@@ -82,8 +84,16 @@ func DerivePlan(opts PlanOptions) (*ClonePlan, error) {
 	if src == dst {
 		return nil, fmt.Errorf("%w: target must differ from source", apperr.ErrInvalidInput)
 	}
+	if !strings.HasSuffix(dst, ".app") {
+		return nil, fmt.Errorf("%w: target path must end in .app: %s", apperr.ErrInvalidInput, dst)
+	}
 	if _, err := os.Stat(dst); err == nil {
-		return nil, fmt.Errorf("%w: %s", apperr.ErrTargetExists, dst)
+		if !opts.Force {
+			return nil, fmt.Errorf("%w: %s (use --force to overwrite)", apperr.ErrTargetExists, dst)
+		}
+		if err := checkForceTarget(dst); err != nil {
+			return nil, err
+		}
 	}
 
 	displayName := opts.DisplayName
@@ -99,9 +109,35 @@ func DerivePlan(opts PlanOptions) (*ClonePlan, error) {
 		NameAfter:        opts.Name,
 		DisplayNameAfter: displayName,
 		DryRun:           opts.DryRun,
+		Force:            opts.Force,
 		HelperRewrites:   computeHelperRewrites(src, report.Identity.BundleID, opts.BundleID),
 	}
 	return plan, nil
+}
+
+// checkForceTarget refuses to --force-delete paths that don't look like an
+// app bundle. This guards against catastrophic typos (e.g. --target /, /etc).
+func checkForceTarget(path string) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	if !strings.HasSuffix(abs, ".app") {
+		return fmt.Errorf("%w: --force refuses to remove non-.app path %s", apperr.ErrInvalidInput, abs)
+	}
+	// Path must have at least 2 separators (e.g. /Applications/X.app) to
+	// avoid removing something like /X.app sitting at the root.
+	if strings.Count(abs, string(filepath.Separator)) < 2 {
+		return fmt.Errorf("%w: --force refuses to remove shallow path %s", apperr.ErrInvalidInput, abs)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%w: --force target is not a directory: %s", apperr.ErrInvalidInput, abs)
+	}
+	return nil
 }
 
 // computeHelperRewrites scans nested signable bundles in the source and
