@@ -12,6 +12,11 @@ import (
 	"github.com/tt-a1i/appclone/internal/core/exitcodes"
 )
 
+var (
+	flagJSON    bool
+	flagVerbose bool
+)
+
 var rootCmd = &cobra.Command{
 	Use:   "appclone",
 	Short: "Clone a macOS .app bundle with a new identity",
@@ -24,6 +29,18 @@ var rootCmd = &cobra.Command{
 	},
 }
 
+func init() {
+	rootCmd.PersistentFlags().BoolVar(&flagJSON, "json", false, "emit structured JSON output")
+	rootCmd.PersistentFlags().BoolVar(&flagVerbose, "verbose", false, "emit extra detail")
+
+	rootCmd.AddCommand(
+		newInspectCmd(),
+		newCloneCmd(),
+		newVerifyCmd(),
+		newDoctorCmd(),
+	)
+}
+
 func appArgValidator(cmd *cobra.Command, args []string) error {
 	if err := cobra.ExactArgs(1)(cmd, args); err != nil {
 		return err
@@ -31,47 +48,8 @@ func appArgValidator(cmd *cobra.Command, args []string) error {
 	return appinfo.ValidateAppPath(args[0])
 }
 
-var inspectCmd = &cobra.Command{
-	Use:   "inspect <app>",
-	Short: "Inspect a .app bundle",
-	Args:  appArgValidator,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return fmt.Errorf("inspect: not implemented yet")
-	},
-}
-
-var cloneCmd = &cobra.Command{
-	Use:   "clone <app>",
-	Short: "Clone a .app bundle",
-	Args:  appArgValidator,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return fmt.Errorf("clone: not implemented yet")
-	},
-}
-
-var verifyCmd = &cobra.Command{
-	Use:   "verify <app>",
-	Short: "Verify a cloned .app",
-	Args:  appArgValidator,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return fmt.Errorf("verify: not implemented yet")
-	},
-}
-
-var doctorCmd = &cobra.Command{
-	Use:   "doctor <app>",
-	Short: "Diagnose issues with a cloned .app",
-	Args:  appArgValidator,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return fmt.Errorf("doctor: not implemented yet")
-	},
-}
-
-func init() {
-	rootCmd.AddCommand(inspectCmd, cloneCmd, verifyCmd, doctorCmd)
-}
-
-// Execute runs the CLI and returns an exit code. Prints errors to stderr.
+// Execute runs the CLI and returns an exit code. It prints any top-level
+// error to stderr (Cobra usage is silenced; we render ourselves).
 func Execute() int {
 	err := rootCmd.Execute()
 	if err == nil {
