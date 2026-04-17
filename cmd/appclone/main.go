@@ -10,11 +10,7 @@ import (
 
 func main() {
 	if len(os.Args) > 1 {
-		if err := cli.Execute(); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		return
+		os.Exit(cli.Execute())
 	}
 	if err := tui.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
