@@ -2,11 +2,16 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -18,6 +23,8 @@ import (
 	"github.com/tt-a1i/appclone/internal/core/macos"
 )
 
+// ——— Screens ————————————————————————————————————————————————————————
+
 type screen int
 
 const (
@@ -26,6 +33,11 @@ const (
 	scrProgress
 	scrResult
 )
+
+var stepLabels = []string{"Pick", "Configure", "Clone", "Done"}
+
+// Stage order drives the fixed progress panel.
+var stageOrder = []string{"copy", "plist", "entitlements", "discover", "resign", "verify"}
 
 // ——— Messages ———————————————————————————————————————————————————————
 
@@ -45,7 +57,21 @@ type pipelineMsg struct {
 	err    error
 }
 
+type toastMsg struct {
+	text string
+	at   time.Time
+}
+
+type toastClearMsg time.Time
+
 // ——— Model ————————————————————————————————————————————————————————————
+
+type stageState struct {
+	status clone.StageStatus
+	msg    string
+	start  time.Time
+	end    time.Time
+}
 
 type model struct {
 	screen        screen
@@ -55,6 +81,7 @@ type model struct {
 	list        list.Model
 	listLoading bool
 	listSpin    spinner.Model
+	appCount    int
 
 	// form
 	selected *appinfo.InspectionReport
@@ -63,33 +90,68 @@ type model struct {
 	formErr  string
 
 	// progress
-	plan   *clone.ClonePlan
-	stages []stageRow
-	pipeCh chan pipelineMsg
+	plan        *clone.ClonePlan
+	stages      map[string]*stageState
+	activeStage string
+	progSpin    spinner.Model
+	pipeCh      chan pipelineMsg
 
 	// result
 	result *clone.RunResult
 	runErr error
-}
 
-type stageRow struct {
-	stage  string
-	status clone.StageStatus
-	msg    string
+	// ephemeral toast (status line)
+	toast   string
+	toastAt time.Time
 }
 
 // ——— Styles ———————————————————————————————————————————————————————————
 
 var (
-	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
-	okStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
-	warnStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-	errStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
-	faintStyle  = lipgloss.NewStyle().Faint(true)
-	labelStyle  = lipgloss.NewStyle().Width(14).Faint(true)
-	focusStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-	borderStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1).BorderForeground(lipgloss.Color("240"))
+	colorPrimary = lipgloss.Color("212") // rose
+	colorAccent  = lipgloss.Color("147") // lilac
+	colorOK      = lipgloss.Color("42")  // green
+	colorWarn    = lipgloss.Color("214") // amber
+	colorErr     = lipgloss.Color("196") // red
+	colorMuted   = lipgloss.Color("240")
+	colorDim     = lipgloss.Color("245")
+
+	titleStyle      = lipgloss.NewStyle().Bold(true).Foreground(colorPrimary)
+	subtitleStyle   = lipgloss.NewStyle().Foreground(colorDim)
+	okStyle         = lipgloss.NewStyle().Foreground(colorOK).Bold(true)
+	warnStyle       = lipgloss.NewStyle().Foreground(colorWarn)
+	errStyle        = lipgloss.NewStyle().Foreground(colorErr).Bold(true)
+	faintStyle      = lipgloss.NewStyle().Faint(true)
+	labelStyle      = lipgloss.NewStyle().Width(13).Foreground(colorDim)
+	labelFocusStyle = lipgloss.NewStyle().Width(13).Foreground(colorPrimary).Bold(true)
+	previewStyle    = lipgloss.NewStyle().Foreground(colorMuted).Italic(true).PaddingLeft(13)
+
+	stepActiveStyle = lipgloss.NewStyle().Foreground(colorPrimary).Bold(true)
+	stepDoneStyle   = lipgloss.NewStyle().Foreground(colorOK)
+	stepPendStyle   = lipgloss.NewStyle().Foreground(colorMuted)
+	stepSepStyle    = lipgloss.NewStyle().Foreground(colorMuted)
+
+	badgeSigned   = lipgloss.NewStyle().Foreground(colorOK).Bold(true).Render("●")
+	badgeUnsigned = lipgloss.NewStyle().Foreground(colorWarn).Render("○")
+
+	cardStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(colorMuted).
+			Padding(1, 2)
+
+	footerStyle = lipgloss.NewStyle().
+			Foreground(colorDim).
+			BorderTop(true).
+			BorderStyle(lipgloss.NormalBorder()).
+			BorderForeground(colorMuted).
+			Padding(0, 1)
+
+	toastStyle = lipgloss.NewStyle().
+			Foreground(colorPrimary).
+			Bold(true)
 )
+
+var bundleIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.\-]*[A-Za-z0-9]$`)
 
 // ——— Entry ———————————————————————————————————————————————————————————
 
@@ -99,21 +161,37 @@ func Run() error {
 }
 
 func initialModel() model {
-	sp := spinner.New()
-	sp.Spinner = spinner.Dot
+	loadSpin := spinner.New()
+	loadSpin.Spinner = spinner.Dot
+	loadSpin.Style = lipgloss.NewStyle().Foreground(colorPrimary)
+
+	progSpin := spinner.New()
+	progSpin.Spinner = spinner.MiniDot
+	progSpin.Style = lipgloss.NewStyle().Foreground(colorPrimary)
 
 	delegate := list.NewDefaultDelegate()
+	delegate.ShowDescription = true
+	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
+		Foreground(colorPrimary).
+		BorderLeftForeground(colorPrimary)
+	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.
+		Foreground(colorAccent).
+		BorderLeftForeground(colorPrimary)
+
 	l := list.New(nil, delegate, 0, 0)
-	l.Title = "AppClone — pick an app to clone"
+	l.Title = "Pick an app to clone"
 	l.SetShowStatusBar(false)
 	l.SetFilteringEnabled(true)
 	l.DisableQuitKeybindings()
+	l.Styles.Title = l.Styles.Title.Background(colorPrimary)
 
 	return model{
 		screen:      scrList,
 		listLoading: true,
-		listSpin:    sp,
+		listSpin:    loadSpin,
+		progSpin:    progSpin,
 		list:        l,
+		stages:      map[string]*stageState{},
 	}
 }
 
@@ -124,21 +202,29 @@ func (m model) Init() tea.Cmd {
 // ——— App scanning ——————————————————————————————————————————————————————
 
 type appItem struct {
-	path       string
-	name       string
-	bundleID   string
-	signed     bool
-	components int
+	path     string
+	name     string
+	bundleID string
+	version  string
+	signed   bool
 }
 
 func (i appItem) FilterValue() string { return i.name + " " + i.bundleID }
-func (i appItem) Title() string       { return i.name }
-func (i appItem) Description() string {
-	sig := "unsigned"
+
+func (i appItem) Title() string {
+	badge := badgeUnsigned
 	if i.signed {
-		sig = "signed"
+		badge = badgeSigned
 	}
-	return fmt.Sprintf("%s · %s", i.bundleID, sig)
+	return fmt.Sprintf("%s  %s", badge, i.name)
+}
+
+func (i appItem) Description() string {
+	ver := i.version
+	if ver == "" {
+		ver = "—"
+	}
+	return fmt.Sprintf("%s  %s  v%s", strings.Repeat(" ", 3), i.bundleID, ver)
 }
 
 func scanAppsCmd() tea.Cmd {
@@ -179,6 +265,7 @@ func scanAppsCmd() tea.Cmd {
 					path:     app,
 					name:     name,
 					bundleID: report.Identity.BundleID,
+					version:  report.Identity.Version,
 					signed:   report.HasSignature,
 				})
 			}
@@ -193,11 +280,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.list.SetSize(msg.Width, msg.Height-4)
+		innerW := msg.Width - 4
+		innerH := msg.Height - 5 // header + footer + margins
+		if innerW < 40 {
+			innerW = 40
+		}
+		if innerH < 10 {
+			innerH = 10
+		}
+		m.list.SetSize(innerW, innerH)
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
+	case toastClearMsg:
+		if time.Time(msg).Equal(m.toastAt) {
+			m.toast = ""
+		}
+		return m, nil
 	}
 
 	switch m.screen {
@@ -218,13 +318,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case spinner.TickMsg:
-		var cmd tea.Cmd
-		m.listSpin, cmd = m.listSpin.Update(msg)
 		if m.listLoading {
+			var cmd tea.Cmd
+			m.listSpin, cmd = m.listSpin.Update(msg)
 			return m, cmd
 		}
 	case appsLoadedMsg:
 		m.listLoading = false
+		m.appCount = len(msg.items)
+		m.list.Title = fmt.Sprintf("Pick an app to clone  ·  %d apps", m.appCount)
 		m.list.SetItems(msg.items)
 		return m, nil
 	case tea.KeyMsg:
@@ -266,12 +368,12 @@ func selectAppCmd(path string) tea.Cmd {
 
 func (m model) viewList() string {
 	if m.listLoading {
-		return fmt.Sprintf("%s Scanning /Applications …\n\n%s",
+		return fmt.Sprintf("%s  Scanning /Applications…\n\n%s",
 			m.listSpin.View(),
-			faintStyle.Render("(Takes a moment; reads every Info.plist.)"),
+			faintStyle.Render("reading every Info.plist; takes a second"),
 		)
 	}
-	return m.list.View() + "\n" + faintStyle.Render("enter = pick · / = filter · q = quit")
+	return m.list.View()
 }
 
 // ——— Screen: form ——————————————————————————————————————————————————————
@@ -284,33 +386,22 @@ const (
 	nFields
 )
 
+var formLabels = []string{"Name", "Bundle ID", "Display", "Target"}
+
 func buildFormInputs(report *appinfo.InspectionReport) []textinput.Model {
 	inputs := make([]textinput.Model, nFields)
-
-	name := textinput.New()
-	name.Placeholder = defaultCloneName(report)
-	name.CharLimit = 64
-	name.Prompt = "› "
-	inputs[fldName] = name
-
-	bid := textinput.New()
-	bid.Placeholder = defaultBundleID(report)
-	bid.CharLimit = 128
-	bid.Prompt = "› "
-	inputs[fldBundleID] = bid
-
-	dn := textinput.New()
-	dn.Placeholder = "(defaults to Name)"
-	dn.CharLimit = 64
-	dn.Prompt = "› "
-	inputs[fldDisplay] = dn
-
-	target := textinput.New()
-	target.Placeholder = "(defaults to /Applications/<Name>.app)"
-	target.CharLimit = 512
-	target.Prompt = "› "
-	inputs[fldTarget] = target
-
+	mk := func(placeholder string, limit int) textinput.Model {
+		t := textinput.New()
+		t.Placeholder = placeholder
+		t.CharLimit = limit
+		t.Prompt = ""
+		t.PromptStyle = lipgloss.NewStyle().Foreground(colorPrimary)
+		return t
+	}
+	inputs[fldName] = mk(defaultCloneName(report), 64)
+	inputs[fldBundleID] = mk(defaultBundleID(report), 128)
+	inputs[fldDisplay] = mk("(defaults to Name)", 64)
+	inputs[fldTarget] = mk("(defaults to /Applications/<Name>.app)", 512)
 	return inputs
 }
 
@@ -346,10 +437,24 @@ func (m model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.focusForm((m.formIdx - 1 + nFields) % nFields)
 			return m, textinput.Blink
 		case "enter":
+			// Only submit from the last field; elsewhere enter advances.
 			if m.formIdx < nFields-1 {
 				m.focusForm(m.formIdx + 1)
 				return m, textinput.Blink
 			}
+			if err := m.validateForm(); err != nil {
+				m.formErr = err.Error()
+				return m, nil
+			}
+			m.formErr = ""
+			return m, m.submitForm()
+		case "ctrl+s":
+			// Submit from any field.
+			if err := m.validateForm(); err != nil {
+				m.formErr = err.Error()
+				return m, nil
+			}
+			m.formErr = ""
 			return m, m.submitForm()
 		}
 	case planBuiltMsg:
@@ -359,8 +464,14 @@ func (m model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.plan = msg.plan
 		m.screen = scrProgress
+		m.stages = map[string]*stageState{}
+		m.activeStage = ""
 		m.pipeCh = make(chan pipelineMsg, 64)
-		return m, tea.Batch(startPipeline(m.plan, m.pipeCh), waitForPipeline(m.pipeCh))
+		return m, tea.Batch(
+			m.progSpin.Tick,
+			startPipeline(m.plan, m.pipeCh),
+			waitForPipeline(m.pipeCh),
+		)
 	}
 	var cmd tea.Cmd
 	m.inputs[m.formIdx], cmd = m.inputs[m.formIdx].Update(msg)
@@ -374,10 +485,25 @@ func (m *model) focusForm(i int) {
 }
 
 func valueOrPlaceholder(t textinput.Model) string {
-	if v := t.Value(); v != "" {
+	if v := strings.TrimSpace(t.Value()); v != "" {
 		return v
 	}
 	return t.Placeholder
+}
+
+func (m model) validateForm() error {
+	name := valueOrPlaceholder(m.inputs[fldName])
+	if name == "" {
+		return fmt.Errorf("Name is required")
+	}
+	bid := valueOrPlaceholder(m.inputs[fldBundleID])
+	if bid == "" {
+		return fmt.Errorf("Bundle ID is required")
+	}
+	if !bundleIDPattern.MatchString(bid) {
+		return fmt.Errorf("Bundle ID must look like com.example.app (alphanumeric + dots/dashes)")
+	}
+	return nil
 }
 
 func (m model) submitForm() tea.Cmd {
@@ -385,8 +511,8 @@ func (m model) submitForm() tea.Cmd {
 		SourceApp:   m.selected.Identity.AppPath,
 		Name:        valueOrPlaceholder(m.inputs[fldName]),
 		BundleID:    valueOrPlaceholder(m.inputs[fldBundleID]),
-		DisplayName: m.inputs[fldDisplay].Value(),
-		TargetApp:   m.inputs[fldTarget].Value(),
+		DisplayName: strings.TrimSpace(m.inputs[fldDisplay].Value()),
+		TargetApp:   strings.TrimSpace(m.inputs[fldTarget].Value()),
 	}
 	return func() tea.Msg {
 		plan, err := clone.DerivePlan(opts)
@@ -394,30 +520,62 @@ func (m model) submitForm() tea.Cmd {
 	}
 }
 
+func (m model) previewFor(i int) string {
+	switch i {
+	case fldName:
+		return "short label used to derive target path if Target is blank"
+	case fldBundleID:
+		v := valueOrPlaceholder(m.inputs[fldBundleID])
+		return fmt.Sprintf("clone bundle id → %s", v)
+	case fldDisplay:
+		v := strings.TrimSpace(m.inputs[fldDisplay].Value())
+		if v == "" {
+			v = valueOrPlaceholder(m.inputs[fldName])
+		}
+		return fmt.Sprintf("CFBundleDisplayName → %s", v)
+	case fldTarget:
+		v := strings.TrimSpace(m.inputs[fldTarget].Value())
+		if v == "" {
+			v = filepath.Join("/Applications", valueOrPlaceholder(m.inputs[fldName])+".app")
+		}
+		return fmt.Sprintf("target path → %s", v)
+	}
+	return ""
+}
+
 func (m model) viewForm() string {
-	labels := []string{"Name", "Bundle ID", "Display Name", "Target path"}
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("Configure clone"))
+	b.WriteString("\n")
+	b.WriteString(subtitleStyle.Render(fmt.Sprintf(
+		"Source: %s  (%s)",
+		filepath.Base(m.selected.Identity.AppPath),
+		m.selected.Identity.BundleID,
+	)))
 	b.WriteString("\n\n")
-	b.WriteString(faintStyle.Render(fmt.Sprintf("Source: %s  (%s)", m.selected.Identity.AppPath, m.selected.Identity.BundleID)))
-	b.WriteString("\n\n")
+
 	for i := range m.inputs {
-		label := labelStyle.Render(labels[i])
+		label := labelStyle.Render(formLabels[i])
 		if i == m.formIdx {
-			label = focusStyle.Width(14).Render(labels[i])
+			label = labelFocusStyle.Render(formLabels[i])
 		}
 		b.WriteString(label)
 		b.WriteString(m.inputs[i].View())
 		b.WriteString("\n")
+		b.WriteString(previewStyle.Render(m.previewFor(i)))
+		b.WriteString("\n")
+		if i < len(m.inputs)-1 {
+			b.WriteString("\n")
+		}
 	}
+
 	if m.formErr != "" {
 		b.WriteString("\n")
-		b.WriteString(errStyle.Render("Error: " + m.formErr))
+		b.WriteString(errStyle.Render("✗ " + m.formErr))
 		b.WriteString("\n")
 	}
-	b.WriteString("\n")
-	b.WriteString(faintStyle.Render("tab = next · shift+tab = prev · enter (on last) = start · esc = back"))
-	return borderStyle.Render(b.String())
+
+	return cardStyle.Render(b.String())
 }
 
 // ——— Screen: progress ——————————————————————————————————————————————————
@@ -454,55 +612,127 @@ func waitForPipeline(ch chan pipelineMsg) tea.Cmd {
 
 func (m model) updateProgress(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case spinner.TickMsg:
+		if m.activeStage != "" {
+			var cmd tea.Cmd
+			m.progSpin, cmd = m.progSpin.Update(msg)
+			return m, cmd
+		}
 	case pipelineMsg:
 		if msg.done {
+			m.activeStage = ""
 			m.result = msg.result
 			m.runErr = msg.err
 			m.screen = scrResult
 			return m, nil
 		}
 		if msg.event != nil {
-			m.stages = append(m.stages, stageRow{
-				stage:  msg.event.Stage,
-				status: msg.event.Status,
-				msg:    msg.event.Message,
-			})
+			m.recordStage(msg.event)
 		}
 		return m, waitForPipeline(m.pipeCh)
 	}
 	return m, nil
 }
 
-func (m model) viewProgress() string {
-	var b strings.Builder
-	b.WriteString(titleStyle.Render("Cloning …"))
-	b.WriteString("\n\n")
-	b.WriteString(faintStyle.Render(fmt.Sprintf("%s → %s", m.plan.SourceApp, m.plan.TargetApp)))
-	b.WriteString("\n")
-	b.WriteString(faintStyle.Render(fmt.Sprintf("%s → %s", m.plan.BundleIDBefore, m.plan.BundleIDAfter)))
-	b.WriteString("\n\n")
-	for _, r := range m.stages {
-		b.WriteString(stageLine(r))
-		b.WriteString("\n")
+func (m *model) recordStage(ev *clone.StageEvent) {
+	st, ok := m.stages[ev.Stage]
+	if !ok {
+		st = &stageState{}
+		m.stages[ev.Stage] = st
 	}
-	return b.String()
+	st.status = ev.Status
+	st.msg = ev.Message
+	switch ev.Status {
+	case clone.StageStart:
+		st.start = time.Now()
+		m.activeStage = ev.Stage
+	default:
+		st.end = time.Now()
+		if m.activeStage == ev.Stage {
+			m.activeStage = ""
+		}
+	}
 }
 
-func stageLine(r stageRow) string {
-	symbol := "•"
-	switch r.status {
-	case clone.StageStart:
-		symbol = faintStyle.Render("→")
-	case clone.StageOK:
-		symbol = okStyle.Render("✓")
-	case clone.StageWarn:
-		symbol = warnStyle.Render("⚠")
-	case clone.StageError:
-		symbol = errStyle.Render("✗")
-	case clone.StageSkip:
-		symbol = faintStyle.Render("-")
+func (m model) viewProgress() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Cloning"))
+	b.WriteString("\n")
+	b.WriteString(subtitleStyle.Render(fmt.Sprintf("%s → %s", m.plan.SourceApp, m.plan.TargetApp)))
+	b.WriteString("\n")
+	b.WriteString(subtitleStyle.Render(fmt.Sprintf("%s → %s", m.plan.BundleIDBefore, m.plan.BundleIDAfter)))
+	b.WriteString("\n\n")
+
+	// Overall progress bar
+	done := 0
+	for _, s := range stageOrder {
+		if st, ok := m.stages[s]; ok && st.status != clone.StageStart {
+			done++
+		}
 	}
-	return fmt.Sprintf("  %s  %-14s %s", symbol, r.stage, r.msg)
+	b.WriteString(renderBar(done, len(stageOrder)))
+	b.WriteString(" ")
+	b.WriteString(faintStyle.Render(fmt.Sprintf("%d / %d", done, len(stageOrder))))
+	b.WriteString("\n\n")
+
+	for _, name := range stageOrder {
+		b.WriteString(m.viewStageRow(name))
+		b.WriteString("\n")
+	}
+	return cardStyle.Render(b.String())
+}
+
+func (m model) viewStageRow(name string) string {
+	st := m.stages[name]
+	var symbol, durStr, msg string
+	switch {
+	case st == nil:
+		symbol = stepPendStyle.Render("○")
+		msg = faintStyle.Render("waiting")
+	case st.status == clone.StageStart:
+		symbol = m.progSpin.View()
+		msg = st.msg
+		durStr = faintStyle.Render(formatDuration(time.Since(st.start)))
+	case st.status == clone.StageOK:
+		symbol = okStyle.Render("✓")
+		msg = st.msg
+		durStr = faintStyle.Render(formatDuration(st.end.Sub(st.start)))
+	case st.status == clone.StageWarn:
+		symbol = warnStyle.Render("⚠")
+		msg = warnStyle.Render(st.msg)
+		durStr = faintStyle.Render(formatDuration(st.end.Sub(st.start)))
+	case st.status == clone.StageError:
+		symbol = errStyle.Render("✗")
+		msg = errStyle.Render(st.msg)
+		durStr = faintStyle.Render(formatDuration(st.end.Sub(st.start)))
+	case st.status == clone.StageSkip:
+		symbol = faintStyle.Render("—")
+		msg = faintStyle.Render(st.msg)
+	}
+	name = lipgloss.NewStyle().Width(13).Foreground(colorDim).Render(name)
+	return fmt.Sprintf(" %s  %s  %s  %s", symbol, name, msg, durStr)
+}
+
+func renderBar(done, total int) string {
+	width := 24
+	filled := width * done / total
+	fillStyle := lipgloss.NewStyle().Foreground(colorPrimary)
+	emptyStyle := lipgloss.NewStyle().Foreground(colorMuted)
+	return fillStyle.Render(strings.Repeat("█", filled)) +
+		emptyStyle.Render(strings.Repeat("░", width-filled))
+}
+
+func formatDuration(d time.Duration) string {
+	if d <= 0 {
+		return ""
+	}
+	if d < time.Second {
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	}
+	return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
 }
 
 // ——— Screen: result ——————————————————————————————————————————————————
@@ -510,64 +740,185 @@ func stageLine(r stageRow) string {
 func (m model) updateResult(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if k, ok := msg.(tea.KeyMsg); ok {
 		switch k.String() {
-		case "q", "enter", "esc":
+		case "q", "esc":
 			return m, tea.Quit
+		case "n":
+			// reset for another run
+			m.screen = scrList
+			m.selected = nil
+			m.plan = nil
+			m.result = nil
+			m.runErr = nil
+			m.stages = map[string]*stageState{}
+			m.activeStage = ""
+			m.formErr = ""
+			return m, nil
+		case "o":
+			if m.plan != nil && m.runErr == nil && !m.plan.DryRun {
+				_ = exec.Command("open", m.plan.TargetApp).Start()
+				return m.setToast("launched clone"), clearToastCmd()
+			}
+		case "f":
+			if m.plan != nil && !m.plan.DryRun {
+				_ = exec.Command("open", "-R", m.plan.TargetApp).Start()
+				return m.setToast("revealed in Finder"), clearToastCmd()
+			}
+		case "c":
+			if data, err := m.resultJSON(); err == nil {
+				if err := clipboard.WriteAll(data); err == nil {
+					return m.setToast("copied JSON to clipboard"), clearToastCmd()
+				}
+			}
 		}
 	}
 	return m, nil
 }
 
-func (m model) viewResult() string {
-	var b strings.Builder
-	if m.runErr != nil {
-		b.WriteString(errStyle.Render("FAILED"))
-		b.WriteString("\n\n")
-		b.WriteString(m.runErr.Error())
-	} else if m.plan.DryRun {
-		b.WriteString(okStyle.Render("DRY-RUN OK"))
-		b.WriteString("\n\n")
-		b.WriteString("Would clone to: " + m.plan.TargetApp)
-	} else {
-		b.WriteString(okStyle.Render("SUCCESS"))
-		b.WriteString("\n\n")
-		b.WriteString("Clone at: " + m.plan.TargetApp)
+func (m model) setToast(text string) model {
+	m.toast = text
+	m.toastAt = time.Now()
+	return m
+}
+
+func clearToastCmd() tea.Cmd {
+	at := time.Now()
+	return tea.Tick(2*time.Second, func(_ time.Time) tea.Msg {
+		return toastClearMsg(at)
+	})
+}
+
+func (m model) resultJSON() (string, error) {
+	payload := map[string]any{
+		"source_app":       m.plan.SourceApp,
+		"target_app":       m.plan.TargetApp,
+		"bundle_id_before": m.plan.BundleIDBefore,
+		"bundle_id_after":  m.plan.BundleIDAfter,
+		"success":          m.runErr == nil,
 	}
-	b.WriteString("\n\n")
-	for _, r := range m.stages {
-		b.WriteString(stageLine(r))
-		b.WriteString("\n")
+	if m.runErr != nil {
+		payload["error"] = m.runErr.Error()
 	}
 	if m.result != nil && m.result.Verify != nil {
-		b.WriteString("\nVerify:\n")
+		payload["verify"] = m.result.Verify
+	}
+	b, err := json.MarshalIndent(payload, "", "  ")
+	return string(b), err
+}
+
+func (m model) viewResult() string {
+	var b strings.Builder
+
+	banner := okStyle.Render("  SUCCESS  ")
+	line := okStyle.Render("Clone at: " + m.plan.TargetApp)
+	if m.runErr != nil {
+		banner = errStyle.Render("  FAILED  ")
+		line = errStyle.Render(m.runErr.Error())
+	} else if m.plan.DryRun {
+		banner = warnStyle.Render("  DRY-RUN OK  ")
+		line = warnStyle.Render("Would clone to: " + m.plan.TargetApp)
+	}
+
+	b.WriteString(banner)
+	b.WriteString("\n\n")
+	b.WriteString(line)
+	b.WriteString("\n\n")
+
+	// compact stage summary
+	b.WriteString(faintStyle.Render("Stages:"))
+	b.WriteString("\n")
+	for _, name := range stageOrder {
+		b.WriteString(m.viewStageRow(name))
+		b.WriteString("\n")
+	}
+
+	if m.result != nil && m.result.Verify != nil {
+		b.WriteString("\n")
 		if m.result.Verify.Codesign != nil {
-			fmt.Fprintf(&b, "  codesign: ok=%v\n", m.result.Verify.Codesign.OK)
+			fmt.Fprintf(&b, "codesign: ok=%v\n", m.result.Verify.Codesign.OK)
 		}
 		if m.result.Verify.SPCTL != nil {
-			fmt.Fprintf(&b, "  spctl:    accepted=%v (ad-hoc clones often rejected)\n", m.result.Verify.SPCTL.Accepted)
-		}
-		for _, w := range m.result.Verify.Warnings {
-			b.WriteString("  ")
-			b.WriteString(warnStyle.Render("⚠ " + w))
-			b.WriteString("\n")
+			fmt.Fprintf(&b, "spctl:    accepted=%v  %s\n",
+				m.result.Verify.SPCTL.Accepted,
+				faintStyle.Render("(ad-hoc clones are typically rejected)"),
+			)
 		}
 	}
-	b.WriteString("\n")
-	b.WriteString(faintStyle.Render("press any key to quit"))
-	return b.String()
+
+	return cardStyle.Render(b.String())
+}
+
+// ——— Chrome (step bar + footer) ————————————————————————————————————————
+
+func (m model) viewStepBar() string {
+	current := int(m.screen)
+	parts := make([]string, 0, len(stepLabels)*2)
+	for i, label := range stepLabels {
+		var s string
+		switch {
+		case i < current:
+			s = stepDoneStyle.Render(fmt.Sprintf("✓ %s", label))
+		case i == current:
+			s = stepActiveStyle.Render(fmt.Sprintf("● %s", label))
+		default:
+			s = stepPendStyle.Render(fmt.Sprintf("○ %s", label))
+		}
+		if i > 0 {
+			parts = append(parts, stepSepStyle.Render("›"))
+		}
+		parts = append(parts, s)
+	}
+	return strings.Join(parts, " ")
+}
+
+func (m model) viewFooter() string {
+	var hints string
+	switch m.screen {
+	case scrList:
+		if m.listLoading {
+			hints = "loading …  ·  ctrl+c quit"
+		} else {
+			hints = "enter pick  ·  / search  ·  ↑/↓ navigate  ·  q quit"
+		}
+	case scrForm:
+		hints = "tab next  ·  shift+tab prev  ·  enter confirm  ·  ctrl+s start  ·  esc back"
+	case scrProgress:
+		hints = "working …  ·  ctrl+c abort"
+	case scrResult:
+		if m.runErr != nil {
+			hints = "c copy JSON  ·  n new clone  ·  q quit"
+		} else if m.plan.DryRun {
+			hints = "c copy JSON  ·  n new clone  ·  q quit"
+		} else {
+			hints = "o open  ·  f Finder  ·  c copy JSON  ·  n new clone  ·  q quit"
+		}
+	}
+	line := faintStyle.Render(hints)
+	if m.toast != "" {
+		line = toastStyle.Render("● "+m.toast) + "    " + line
+	}
+	return footerStyle.Render(line)
 }
 
 // ——— Root View ————————————————————————————————————————————————————————
 
 func (m model) View() string {
+	var body string
 	switch m.screen {
 	case scrList:
-		return m.viewList()
+		body = m.viewList()
 	case scrForm:
-		return m.viewForm()
+		body = m.viewForm()
 	case scrProgress:
-		return m.viewProgress()
+		body = m.viewProgress()
 	case scrResult:
-		return m.viewResult()
+		body = m.viewResult()
 	}
-	return ""
+	header := m.viewStepBar()
+	footer := m.viewFooter()
+	return lipgloss.JoinVertical(lipgloss.Left,
+		" "+header,
+		"",
+		body,
+		footer,
+	)
 }
