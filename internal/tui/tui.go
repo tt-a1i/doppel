@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,6 +20,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/tt-a1i/appclone/internal/core/appinfo"
+	"github.com/tt-a1i/appclone/internal/core/apperr"
 	"github.com/tt-a1i/appclone/internal/core/clone"
 	"github.com/tt-a1i/appclone/internal/core/macos"
 )
@@ -95,10 +97,14 @@ type model struct {
 	appCount    int
 
 	// form
-	selected *appinfo.InspectionReport
-	inputs   []textinput.Model
-	formIdx  int
-	formErr  string
+	selected      *appinfo.InspectionReport
+	inputs        []textinput.Model
+	formIdx       int
+	formErr       string
+	formErrDetail string
+
+	// help overlay (cross-screen)
+	showHelp bool
 
 	// progress
 	plan        *clone.ClonePlan
@@ -155,6 +161,10 @@ var (
 			Padding(0, 1)
 
 	toastStyle = lipgloss.NewStyle().
+			Foreground(colorPrimary).
+			Bold(true)
+
+	keyStyle = lipgloss.NewStyle().
 			Foreground(colorPrimary).
 			Bold(true)
 )
@@ -306,6 +316,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
+		// Global help toggle. Skip while typing in the form or filter — '?'
+		// might be a legitimate character there.
+		if msg.String() == "?" {
+			typing := (m.screen == scrForm) ||
+				(m.screen == scrList && m.list.SettingFilter())
+			if !typing {
+				m.showHelp = !m.showHelp
+				return m, nil
+			}
+		}
+		if m.showHelp {
+			// Any other key dismisses the overlay.
+			m.showHelp = false
+			return m, nil
+		}
 	case toastClearMsg:
 		if time.Time(msg).Equal(m.toastAt) {
 			m.toast = ""
@@ -456,23 +481,23 @@ func (m model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, textinput.Blink
 			}
 			if err := m.validateForm(); err != nil {
-				m.formErr = err.Error()
+				m.formErr, m.formErrDetail = humanizeErr(err)
 				return m, nil
 			}
-			m.formErr = ""
+			m.formErr, m.formErrDetail = "", ""
 			return m, m.submitForm()
 		case "ctrl+s":
 			// Submit from any field.
 			if err := m.validateForm(); err != nil {
-				m.formErr = err.Error()
+				m.formErr, m.formErrDetail = humanizeErr(err)
 				return m, nil
 			}
-			m.formErr = ""
+			m.formErr, m.formErrDetail = "", ""
 			return m, m.submitForm()
 		}
 	case planBuiltMsg:
 		if msg.err != nil {
-			m.formErr = msg.err.Error()
+			m.formErr, m.formErrDetail = humanizeErr(msg.err)
 			return m, nil
 		}
 		m.plan = msg.plan
@@ -507,14 +532,17 @@ func valueOrPlaceholder(t textinput.Model) string {
 func (m model) validateForm() error {
 	name := valueOrPlaceholder(m.inputs[fldName])
 	if name == "" {
-		return fmt.Errorf("Name is required")
+		return fmt.Errorf("%w: Name is required", apperr.ErrInvalidInput)
 	}
 	bid := valueOrPlaceholder(m.inputs[fldBundleID])
 	if bid == "" {
-		return fmt.Errorf("Bundle ID is required")
+		return fmt.Errorf("%w: Bundle ID is required", apperr.ErrInvalidInput)
 	}
 	if !bundleIDPattern.MatchString(bid) {
-		return fmt.Errorf("Bundle ID must look like com.example.app (alphanumeric + dots/dashes)")
+		return fmt.Errorf("%w: Bundle ID must look like com.example.app (letters, numbers, dots, dashes)", apperr.ErrInvalidInput)
+	}
+	if bid == m.selected.Identity.BundleID {
+		return fmt.Errorf("%w: Bundle ID must differ from the source (%s)", apperr.ErrInvalidInput, bid)
 	}
 	return nil
 }
@@ -621,6 +649,12 @@ func (m model) viewForm() string {
 		b.WriteString("\n")
 		b.WriteString(errStyle.Render("✗ " + m.formErr))
 		b.WriteString("\n")
+		if m.formErrDetail != "" {
+			// Show first line of detail inline; rest stays in logs/verbose.
+			detail := strings.SplitN(m.formErrDetail, "\n", 2)[0]
+			b.WriteString(faintStyle.Render("  " + detail))
+			b.WriteString("\n")
+		}
 	}
 
 	return cardStyle.Render(b.String())
@@ -774,6 +808,58 @@ func renderBar(done, total int) string {
 		emptyStyle.Render(strings.Repeat("░", width-filled))
 }
 
+// nextStepsBlock renders a short bulleted list of what the user can do now.
+func (m model) nextStepsBlock() string {
+	lines := []string{
+		faintStyle.Render("What now:"),
+		fmt.Sprintf("  • press %s to launch the clone", keyStyle.Render("o")),
+		fmt.Sprintf("  • first launch: macOS will warn — %s → Open to bypass Gatekeeper once", keyStyle.Render("right-click")),
+		fmt.Sprintf("  • press %s to reveal in Finder", keyStyle.Render("f")),
+		fmt.Sprintf("  • press %s to clone another app", keyStyle.Render("n")),
+	}
+	return strings.Join(lines, "\n")
+}
+
+// humanizeErr turns a raw Go error into (headline, detail). Headline is one
+// short sentence safe to show to non-technical users; detail preserves the
+// raw text for anyone who wants it.
+func humanizeErr(err error) (headline, detail string) {
+	if err == nil {
+		return "", ""
+	}
+	raw := err.Error()
+	switch {
+	case errors.Is(err, apperr.ErrTargetExists):
+		return "A file already exists at the target path.",
+			"Choose a different Name or Target, or remove the existing copy first.\n\n" + raw
+	case errors.Is(err, apperr.ErrAppMissing):
+		return "That app can't be found on disk.",
+			"It may have been moved or deleted since you picked it. Go back to the list and re-select.\n\n" + raw
+	case errors.Is(err, apperr.ErrNotAnApp):
+		return "The path isn't a valid .app bundle.",
+			raw
+	case errors.Is(err, apperr.ErrInvalidInput):
+		return "Some input isn't valid.", raw
+	case strings.Contains(raw, "Permission denied"), strings.Contains(raw, "permission denied"):
+		return "Permission denied while writing the clone.",
+			"macOS restricts writing to /Applications for some folders. Try a Target under ~/Applications/ instead.\n\n" + raw
+	case strings.Contains(raw, "resource fork, Finder information"):
+		return "Source bundle has metadata that strict signing doesn't allow.",
+			"The original app ships with extra macOS xattrs. This is a source-app issue, not appclone — try running 'xattr -rc' on the source or pick a different app.\n\n" + raw
+	case strings.Contains(raw, "codesign failed"):
+		return "Re-signing the clone failed.",
+			"codesign rejected one of the nested items. Run 'appclone doctor' on the source for hints about what's unusual.\n\n" + raw
+	case strings.Contains(raw, "ditto failed"):
+		return "Copying the bundle failed.",
+			"Usually a permissions issue or the source disappeared mid-copy. Try a different Target.\n\n" + raw
+	case strings.Contains(raw, "verify failed"):
+		return "Clone was created but the signature doesn't verify.",
+			"The copy exists on disk but macOS may refuse to launch it. Run 'appclone doctor' on the clone for details.\n\n" + raw
+	default:
+		return "Something went wrong.", raw
+	}
+}
+
 func formatDuration(d time.Duration) string {
 	if d <= 0 {
 		return ""
@@ -860,19 +946,26 @@ func (m model) resultJSON() (string, error) {
 func (m model) viewResult() string {
 	var b strings.Builder
 
-	banner := okStyle.Render("  SUCCESS  ")
-	line := okStyle.Render("Clone at: " + m.plan.TargetApp)
-	if m.runErr != nil {
+	var banner, body string
+	switch {
+	case m.runErr != nil:
+		headline, detail := humanizeErr(m.runErr)
 		banner = errStyle.Render("  FAILED  ")
-		line = errStyle.Render(m.runErr.Error())
-	} else if m.plan.DryRun {
+		body = errStyle.Render(headline)
+		if detail != "" {
+			body += "\n\n" + faintStyle.Render(detail)
+		}
+	case m.plan.DryRun:
 		banner = warnStyle.Render("  DRY-RUN OK  ")
-		line = warnStyle.Render("Would clone to: " + m.plan.TargetApp)
+		body = warnStyle.Render("Would clone to: " + m.plan.TargetApp)
+	default:
+		banner = okStyle.Render("  SUCCESS  ")
+		body = okStyle.Render("Clone at: " + m.plan.TargetApp) + "\n\n" + m.nextStepsBlock()
 	}
 
 	b.WriteString(banner)
 	b.WriteString("\n\n")
-	b.WriteString(line)
+	b.WriteString(body)
 	b.WriteString("\n\n")
 
 	// compact stage summary
@@ -935,7 +1028,7 @@ func (m model) viewFooter() string {
 		if m.listLoading {
 			hints = "loading …  ·  ctrl+c quit"
 		} else {
-			hints = "enter pick  ·  / search  ·  ↑/↓ navigate  ·  q quit"
+			hints = "enter pick  ·  / search  ·  ↑/↓ navigate  ·  ? help  ·  q quit"
 		}
 	case scrForm:
 		hints = "tab next  ·  shift+tab prev  ·  enter confirm  ·  ctrl+s start  ·  esc back"
@@ -943,11 +1036,11 @@ func (m model) viewFooter() string {
 		hints = "working …  ·  ctrl+c abort"
 	case scrResult:
 		if m.runErr != nil {
-			hints = "c copy JSON  ·  n new clone  ·  q quit"
+			hints = "c copy JSON  ·  n new clone  ·  ? help  ·  q quit"
 		} else if m.plan.DryRun {
-			hints = "c copy JSON  ·  n new clone  ·  q quit"
+			hints = "c copy JSON  ·  n new clone  ·  ? help  ·  q quit"
 		} else {
-			hints = "o open  ·  f Finder  ·  c copy JSON  ·  n new clone  ·  q quit"
+			hints = "o open  ·  f Finder  ·  c copy JSON  ·  n new clone  ·  ? help  ·  q quit"
 		}
 	}
 	line := faintStyle.Render(hints)
@@ -957,19 +1050,59 @@ func (m model) viewFooter() string {
 	return footerStyle.Render(line)
 }
 
+// viewHelp is an overlay shown when showHelp is true. It covers the body
+// area; header/footer remain visible.
+func (m model) viewHelp() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Help"))
+	b.WriteString("\n\n")
+	b.WriteString("What appclone does:\n")
+	b.WriteString(faintStyle.Render(
+		"  Makes a second, independently-launchable copy of a macOS app.\n" +
+			"  The clone gets a new identity (bundle ID + name) so macOS treats\n" +
+			"  it as a different app — you can run both side-by-side, sign in\n" +
+			"  with separate accounts, keep separate preferences, etc.\n",
+	))
+	b.WriteString("\n")
+	b.WriteString("How it works:\n")
+	b.WriteString(faintStyle.Render(
+		"  1. Copy files     — duplicates the .app bundle (preserving metadata)\n" +
+			"  2. Update identity — rewrites Bundle ID, name, and helper IDs\n" +
+			"  3. Adjust perms   — strips entitlements tied to the old identity\n" +
+			"  4. Scan components — finds nested frameworks / helpers / plugins\n" +
+			"  5. Re-sign code   — ad-hoc signs each piece, deepest first\n" +
+			"  6. Verify         — codesign + Gatekeeper checks\n",
+	))
+	b.WriteString("\n")
+	b.WriteString("Caveats:\n")
+	b.WriteString(faintStyle.Render(
+		"  • Clones are locally signed, not vendor-signed — Gatekeeper will\n" +
+			"    prompt on first launch. Right-click → Open to approve once.\n" +
+			"  • Sandboxed apps start with empty containers (no synced data).\n" +
+			"  • Auto-updaters (Sparkle, etc.) often don't work on clones.\n",
+	))
+	b.WriteString("\n")
+	b.WriteString(faintStyle.Render("press any key to close"))
+	return cardStyle.Render(b.String())
+}
+
 // ——— Root View ————————————————————————————————————————————————————————
 
 func (m model) View() string {
 	var body string
-	switch m.screen {
-	case scrList:
-		body = m.viewList()
-	case scrForm:
-		body = m.viewForm()
-	case scrProgress:
-		body = m.viewProgress()
-	case scrResult:
-		body = m.viewResult()
+	if m.showHelp {
+		body = m.viewHelp()
+	} else {
+		switch m.screen {
+		case scrList:
+			body = m.viewList()
+		case scrForm:
+			body = m.viewForm()
+		case scrProgress:
+			body = m.viewProgress()
+		case scrResult:
+			body = m.viewResult()
+		}
 	}
 	header := m.viewStepBar()
 	footer := m.viewFooter()
