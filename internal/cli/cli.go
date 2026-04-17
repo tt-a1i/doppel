@@ -87,7 +87,9 @@ func errToExitCode(err error) int {
 		return exitcodes.UnsupportedEnvironment
 	case errors.Is(err, apperr.ErrAppMissing),
 		errors.Is(err, apperr.ErrNotAnApp),
-		errors.Is(err, apperr.ErrAppUnreadable):
+		errors.Is(err, apperr.ErrAppUnreadable),
+		errors.Is(err, apperr.ErrInvalidInput),
+		errors.Is(err, apperr.ErrTargetExists):
 		return exitcodes.InvalidInput
 	default:
 		return exitcodes.GeneralError
