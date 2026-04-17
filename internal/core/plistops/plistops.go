@@ -52,3 +52,25 @@ func SetIdentity(p Plist, bundleID, name, displayName string) {
 		p["CFBundleDisplayName"] = displayName
 	}
 }
+
+// knownIntegrityKeys are Info.plist keys used by various frameworks to
+// fingerprint the bundle for anti-tamper / anti-clone detection. Cloning
+// inherently changes identity — these checks will fail and make the app
+// abort itself on startup. Stripping them is necessary for the clone to
+// actually run.
+var knownIntegrityKeys = []string{
+	"ElectronAsarIntegrity", // Electron 20+ asar SHA256 check
+}
+
+// StripIntegrityKeys removes known anti-clone/anti-tamper integrity keys
+// from the plist, returning the list of keys that were actually removed.
+func StripIntegrityKeys(p Plist) []string {
+	var stripped []string
+	for _, k := range knownIntegrityKeys {
+		if _, ok := p[k]; ok {
+			delete(p, k)
+			stripped = append(stripped, k)
+		}
+	}
+	return stripped
+}

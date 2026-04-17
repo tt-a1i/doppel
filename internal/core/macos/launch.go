@@ -34,7 +34,9 @@ type LaunchTestResult struct {
 func LaunchTest(ctx context.Context, ex Execer, appPath, bundleID string, timeout time.Duration) *LaunchTestResult {
 	r := &LaunchTestResult{Attempted: true}
 	if timeout <= 0 {
-		timeout = 5 * time.Second
+		// Electron/Chromium apps routinely take 3-5s to bootstrap. Default
+		// needs to comfortably exceed that or we get false negatives.
+		timeout = 10 * time.Second
 	}
 
 	home := os.Getenv("HOME")
@@ -59,13 +61,14 @@ func LaunchTest(ctx context.Context, ex Execer, appPath, bundleID string, timeou
 
 	start := time.Now()
 	var pid int
-	// Allow up to half the timeout for the process to register. macOS pgrep
-	// and lsappinfo are both flaky for freshly-launched GUI apps, so we scan
-	// `ps -axo pid,command` for the target executable path — that's what
-	// Activity Monitor uses and it reliably finds GUI processes.
+	// Poll throughout the full timeout window for the process to appear.
+	// Electron/Chromium apps can take 3-5s before the main process is
+	// visible in ps. We scan `ps -axo pid,command` for the target exe path
+	// which is what Activity Monitor uses and reliably finds GUI processes.
 	exePath := filepath.Join(appPath, "Contents", "MacOS") + "/"
-	for time.Since(start) < timeout/2 {
-		time.Sleep(250 * time.Millisecond)
+	discoveryDeadline := start.Add(timeout)
+	for time.Now().Before(discoveryDeadline) {
+		time.Sleep(300 * time.Millisecond)
 		if pid = findPIDByExePath(ctx, ex, exePath); pid > 0 {
 			break
 		}
@@ -82,11 +85,22 @@ func LaunchTest(ctx context.Context, ex Execer, appPath, bundleID string, timeou
 		return r
 	}
 
-	// Watch for early exit.
-	deadline := start.Add(timeout)
-	for time.Now().Before(deadline) {
+	// Watch for early exit. Give at least 3s past discovery so Electron
+	// helpers finishing their init doesn't get mistaken for main exit.
+	watchDeadline := time.Now().Add(3 * time.Second)
+	if orig := start.Add(timeout); orig.After(watchDeadline) {
+		watchDeadline = orig
+	}
+	for time.Now().Before(watchDeadline) {
 		time.Sleep(300 * time.Millisecond)
 		if !processAlive(pid) {
+			// Try to find replacement process (main may have respawned
+			// under a different pid, common in Electron multi-process).
+			exePath := filepath.Join(appPath, "Contents", "MacOS") + "/"
+			if newPID := findPIDByExePath(ctx, ex, exePath); newPID > 0 && newPID != pid {
+				pid = newPID
+				continue
+			}
 			r.Survived = false
 			r.SurvivedMs = time.Since(start).Milliseconds()
 			if crashDir != "" {

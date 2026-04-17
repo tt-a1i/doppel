@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/tt-a1i/appclone/internal/core/macos"
 	"github.com/tt-a1i/appclone/internal/core/plistops"
@@ -59,20 +60,28 @@ func Run(ctx context.Context, plan *ClonePlan, ex macos.Execer, events chan<- St
 		emit("copy", StageOK, "bundle copied")
 	}
 
-	// 2. Mutate plists (identity + helpers)
+	// 2. Mutate plists (identity + helpers + strip integrity keys)
 	emit("plist", StageStart, fmt.Sprintf("%s → %s", plan.BundleIDBefore, plan.BundleIDAfter))
 	if plan.DryRun {
 		emit("plist", StageSkip, "dry-run")
 	} else {
-		if err := MutatePlists(plan); err != nil {
+		stripped, err := MutatePlists(plan)
+		if err != nil {
 			emit("plist", StageError, err.Error())
 			return result, err
 		}
-		msg := "identity written"
+		parts := []string{"identity written"}
 		if n := len(plan.HelperRewrites); n > 0 {
-			msg = fmt.Sprintf("identity + %d helper rewrite(s)", n)
+			parts[0] = fmt.Sprintf("identity + %d helper rewrite(s)", n)
 		}
-		emit("plist", StageOK, msg)
+		if len(stripped) > 0 {
+			parts = append(parts, fmt.Sprintf("stripped %s", strings.Join(stripped, ", ")))
+			for _, k := range stripped {
+				result.Warnings = append(result.Warnings,
+					fmt.Sprintf("stripped %s from clone Info.plist — required for clone to launch", k))
+			}
+		}
+		emit("plist", StageOK, strings.Join(parts, " · "))
 	}
 
 	// 3. Entitlements (extract from source, filter for new identity)
@@ -162,18 +171,21 @@ func Run(ctx context.Context, plan *ClonePlan, ex macos.Execer, events chan<- St
 }
 
 // MutatePlists rewrites the target bundle's Info.plist to the clone identity
-// and applies any helper rewrites listed in the plan. Helper Info.plists
-// that cannot be read are skipped silently (best-effort — helpers sometimes
-// ship broken symlinks or non-standard layouts).
-func MutatePlists(plan *ClonePlan) error {
+// and applies any helper rewrites listed in the plan. Also strips known
+// anti-clone integrity keys (ElectronAsarIntegrity, etc.) whose checks
+// would abort the clone on startup. Returns any stripped keys for reporting.
+// Helper Info.plists that cannot be read are skipped silently (best-effort —
+// helpers sometimes ship broken symlinks or non-standard layouts).
+func MutatePlists(plan *ClonePlan) ([]string, error) {
 	mainPlist := filepath.Join(plan.TargetApp, "Contents", "Info.plist")
 	p, format, err := plistops.Read(mainPlist)
 	if err != nil {
-		return fmt.Errorf("read target plist: %w", err)
+		return nil, fmt.Errorf("read target plist: %w", err)
 	}
 	plistops.SetIdentity(p, plan.BundleIDAfter, plan.NameAfter, plan.DisplayNameAfter)
+	stripped := plistops.StripIntegrityKeys(p)
 	if err := plistops.Write(mainPlist, p, format); err != nil {
-		return fmt.Errorf("write target plist: %w", err)
+		return nil, fmt.Errorf("write target plist: %w", err)
 	}
 
 	for _, r := range plan.HelperRewrites {
@@ -183,11 +195,12 @@ func MutatePlists(plan *ClonePlan) error {
 			continue
 		}
 		pp["CFBundleIdentifier"] = r.NewBundleID
+		plistops.StripIntegrityKeys(pp) // helpers rarely have these but be safe
 		if err := plistops.Write(hp, pp, pf); err != nil {
-			return fmt.Errorf("write helper plist %s: %w", hp, err)
+			return nil, fmt.Errorf("write helper plist %s: %w", hp, err)
 		}
 	}
-	return nil
+	return stripped, nil
 }
 
 // buildResignSet returns only the signables whose on-disk contents we

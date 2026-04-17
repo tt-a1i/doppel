@@ -42,7 +42,7 @@ func TestMutatePlists_MainAndHelper(t *testing.T) {
 			{RelativePath: filepath.Join("Contents", "Helpers", "H.app"), OldBundleID: "com.old.app.helper", NewBundleID: "com.new.app.helper"},
 		},
 	}
-	if err := MutatePlists(plan); err != nil {
+	if _, err := MutatePlists(plan); err != nil {
 		t.Fatal(err)
 	}
 
