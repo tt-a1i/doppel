@@ -1,0 +1,67 @@
+version: 2
+
+project_name: doppel
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: doppel
+    main: ./cmd/doppel
+    binary: doppel
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - docs/*.md
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+brews:
+  - name: doppel
+    repository:
+      owner: tt-a1i
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    directory: Formula
+    homepage: https://github.com/tt-a1i/doppel
+    description: Clone a macOS .app bundle into a second, separately-launchable instance
+    caveats: |
+      doppel is distributed as an unsigned binary — macOS Gatekeeper will
+      prompt on first launch. If the command is blocked, run:
+
+        xattr -dr com.apple.quarantine "$(brew --prefix)/bin/doppel"
+    test: |
+      system "#{bin}/doppel", "--help"
