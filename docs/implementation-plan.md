@@ -154,7 +154,7 @@ Each task: objective → files → acceptance criteria → tests → commit mess
 
 **Done.** Module initialized; `cmd/doppel/main.go` dispatches TUI vs CLI; Cobra subcommand stubs return "not implemented"; Bubble Tea hello model; Makefile; `./doppel --help` works.
 
-Commit: `c774763 feat: initialize doppel skeleton with go module and tui/cli dispatch`
+Commit: `c774763 feat: initialize appclone skeleton with go module and tui/cli dispatch` (pre-rename)
 
 ## Task 2 — Environment & path validation + error types
 
