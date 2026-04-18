@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/tt-a1i/appclone/internal/core/macos"
+	"github.com/tt-a1i/doppel/internal/core/macos"
 )
 
 func TestCopyBundle_InvokesDitto(t *testing.T) {

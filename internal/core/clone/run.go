@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/tt-a1i/appclone/internal/core/electron"
-	"github.com/tt-a1i/appclone/internal/core/macos"
-	"github.com/tt-a1i/appclone/internal/core/plistops"
-	"github.com/tt-a1i/appclone/internal/core/signing"
-	"github.com/tt-a1i/appclone/internal/core/verify"
+	"github.com/tt-a1i/doppel/internal/core/electron"
+	"github.com/tt-a1i/doppel/internal/core/macos"
+	"github.com/tt-a1i/doppel/internal/core/plistops"
+	"github.com/tt-a1i/doppel/internal/core/signing"
+	"github.com/tt-a1i/doppel/internal/core/verify"
 )
 
 type StageStatus string

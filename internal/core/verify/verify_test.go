@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tt-a1i/appclone/internal/core/macos"
+	"github.com/tt-a1i/doppel/internal/core/macos"
 )
 
 const testPlist = `<?xml version="1.0"?>

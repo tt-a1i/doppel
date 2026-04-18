@@ -12,7 +12,7 @@ Results from cloning real apps on macOS. "Cloned" means the pipeline finished wi
 | Cherry Studio | Electron | 9 | 4 | yes | ✅ | ✅ | Verified on 2026-04-18 with source + clone running simultaneously; clone uses separate `~/Library/Application Support/Cherry Studio Clone` |
 | Claude | Electron | 9 | 4 | yes | ✅ | ✗ | Clone completes and passes `codesign --verify --deep --strict`, but startup fails with `Failed to get integrity for validatable asar archive: Resources/app.asar` |
 | Safari | SIP-protected Apple app | — | — | — | ✗ | — | `/Applications/Safari.app` is technically cloneable but source bundle cannot be modified; the clone target is OK, but Safari hard-codes Apple-signed expectations and won't launch |
-| Google Chrome | Chrome + Helpers in Framework | — | — | — | ✗ | — | Source fails `codesign --verify --strict` due to FinderInfo xattrs. Doctor correctly flags `codesign_failed` before any clone. Not an appclone bug — Chrome ships with non-strict resources |
+| Google Chrome | Chrome + Helpers in Framework | — | — | — | ✗ | — | Source fails `codesign --verify --strict` due to FinderInfo xattrs. Doctor correctly flags `codesign_failed` before any clone. Not an doppel bug — Chrome ships with non-strict resources |
 
 ## Legend
 
@@ -22,24 +22,24 @@ Results from cloning real apps on macOS. "Cloned" means the pipeline finished wi
 
 ## How to reproduce
 
-Each row above was generated with this command (TARGET is `/tmp/appclone-validate/<name>.app`):
+Each row above was generated with this command (TARGET is `/tmp/doppel-validate/<name>.app`):
 
 ```bash
-./appclone clone /Applications/<APP_NAME>.app \
+./doppel clone /Applications/<APP_NAME>.app \
   --name <APP_NAME>-test \
-  --bundle-id test.appclone.<APP_NAME> \
-  --target /tmp/appclone-validate/<APP_NAME>-test.app
+  --bundle-id test.doppel.<APP_NAME> \
+  --target /tmp/doppel-validate/<APP_NAME>-test.app
 ```
 
 And the launch check:
 
 ```bash
-open /tmp/appclone-validate/<APP_NAME>-test.app
+open /tmp/doppel-validate/<APP_NAME>-test.app
 ```
 
 ## Adding a row
 
-When you run appclone against a new app, add a row here with:
+When you run doppel against a new app, add a row here with:
 
 - **App name** as it appears in `/Applications`
 - **Type** — rough bucket (Swift, Electron, Flutter, native C, etc.)

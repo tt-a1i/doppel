@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/tt-a1i/appclone/internal/core/apperr"
-	"github.com/tt-a1i/appclone/internal/core/macos"
+	"github.com/tt-a1i/doppel/internal/core/apperr"
+	"github.com/tt-a1i/doppel/internal/core/macos"
 )
 
 // CopyBundle copies plan.SourceApp → plan.TargetApp using /usr/bin/ditto so

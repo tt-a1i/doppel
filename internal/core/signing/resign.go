@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/tt-a1i/appclone/internal/core/macos"
-	"github.com/tt-a1i/appclone/internal/core/plistops"
+	"github.com/tt-a1i/doppel/internal/core/macos"
+	"github.com/tt-a1i/doppel/internal/core/plistops"
 )
 
 type ResignOptions struct {

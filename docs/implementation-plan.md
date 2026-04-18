@@ -1,6 +1,6 @@
-# AppClone Implementation Plan
+# Doppel Implementation Plan
 
-> Working plan for building AppClone. Each task has objectives, file list, acceptance criteria, and tests. TDD where it makes sense: write failing test → implement → pass → commit.
+> Working plan for building Doppel. Each task has objectives, file list, acceptance criteria, and tests. TDD where it makes sense: write failing test → implement → pass → commit.
 
 ## 1. Product
 
@@ -33,8 +33,8 @@
 ## 3. Repo Structure
 
 ```
-appclone/
-├── cmd/appclone/main.go          # Entry: args → CLI, no args → TUI
+doppel/
+├── cmd/doppel/main.go          # Entry: args → CLI, no args → TUI
 ├── internal/
 │   ├── core/                     # Pure logic, no UI deps. TUI + CLI both consume.
 │   │   ├── appinfo/              # Inspect bundle → structured model
@@ -152,9 +152,9 @@ Each task: objective → files → acceptance criteria → tests → commit mess
 
 ## Task 1 — Skeleton ✅
 
-**Done.** Module initialized; `cmd/appclone/main.go` dispatches TUI vs CLI; Cobra subcommand stubs return "not implemented"; Bubble Tea hello model; Makefile; `./appclone --help` works.
+**Done.** Module initialized; `cmd/doppel/main.go` dispatches TUI vs CLI; Cobra subcommand stubs return "not implemented"; Bubble Tea hello model; Makefile; `./doppel --help` works.
 
-Commit: `c774763 feat: initialize appclone skeleton with go module and tui/cli dispatch`
+Commit: `c774763 feat: initialize doppel skeleton with go module and tui/cli dispatch`
 
 ## Task 2 — Environment & path validation + error types
 

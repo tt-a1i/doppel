@@ -8,9 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tt-a1i/appclone/internal/core/exitcodes"
-	"github.com/tt-a1i/appclone/internal/core/macos"
-	"github.com/tt-a1i/appclone/internal/core/verify"
+	"github.com/tt-a1i/doppel/internal/core/exitcodes"
+	"github.com/tt-a1i/doppel/internal/core/macos"
+	"github.com/tt-a1i/doppel/internal/core/verify"
 )
 
 func newVerifyCmd() *cobra.Command {

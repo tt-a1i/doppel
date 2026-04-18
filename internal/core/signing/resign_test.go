@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tt-a1i/appclone/internal/core/macos"
-	"github.com/tt-a1i/appclone/internal/core/plistops"
+	"github.com/tt-a1i/doppel/internal/core/macos"
+	"github.com/tt-a1i/doppel/internal/core/plistops"
 )
 
 func TestDeepResign_OrderAndNoEntitlements(t *testing.T) {

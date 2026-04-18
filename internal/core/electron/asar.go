@@ -29,7 +29,7 @@ type packedFile struct {
 // package name and product name must diverge from the source app so Electron
 // gets a distinct single-instance lock and userData directory.
 func DerivePackageIdentity(cloneName, cloneDisplayName, sourceName, sourceDisplayName string) (packageName, productName string) {
-	productBase := firstNonEmpty(strings.TrimSpace(cloneDisplayName), strings.TrimSpace(cloneName), "appclone")
+	productBase := firstNonEmpty(strings.TrimSpace(cloneDisplayName), strings.TrimSpace(cloneName), "doppel")
 	productName = productBase
 	if conflictsWithSource(productName, sourceName, sourceDisplayName) {
 		productName = strings.TrimSpace(productName + " Clone")
@@ -38,13 +38,13 @@ func DerivePackageIdentity(cloneName, cloneDisplayName, sourceName, sourceDispla
 	packageBase := firstNonEmpty(strings.TrimSpace(cloneName), strings.TrimSpace(cloneDisplayName), productName)
 	packageName = sanitizePackageName(packageBase)
 	if packageName == "" {
-		packageName = "appclone"
+		packageName = "doppel"
 	}
 	if conflictsWithSource(packageName, sourceName, sourceDisplayName) {
 		packageName = sanitizePackageName(packageName + "-clone")
 	}
 	if packageName == "" {
-		packageName = "appclone"
+		packageName = "doppel"
 	}
 	return packageName, productName
 }

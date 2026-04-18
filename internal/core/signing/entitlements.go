@@ -9,8 +9,8 @@ import (
 
 	"howett.net/plist"
 
-	"github.com/tt-a1i/appclone/internal/core/macos"
-	"github.com/tt-a1i/appclone/internal/core/plistops"
+	"github.com/tt-a1i/doppel/internal/core/macos"
+	"github.com/tt-a1i/doppel/internal/core/plistops"
 )
 
 // strippedEntitlements are entitlements whose value is tied to a specific
@@ -80,7 +80,7 @@ func ExtractAndFilterEntitlements(ctx context.Context, ex macos.Execer, sourceAp
 // for passing to codesign --entitlements. Caller is responsible for
 // os.Remove-ing the returned path.
 func WriteEntitlementsFile(ent plistops.Plist) (string, error) {
-	f, err := os.CreateTemp("", "appclone-ent-*.plist")
+	f, err := os.CreateTemp("", "doppel-ent-*.plist")
 	if err != nil {
 		return "", err
 	}

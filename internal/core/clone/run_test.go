@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/tt-a1i/appclone/internal/core/macos"
-	"github.com/tt-a1i/appclone/internal/core/plistops"
+	"github.com/tt-a1i/doppel/internal/core/macos"
+	"github.com/tt-a1i/doppel/internal/core/plistops"
 )
 
 func TestMutatePlists_MainAndHelper(t *testing.T) {
