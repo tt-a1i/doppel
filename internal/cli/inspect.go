@@ -8,10 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tt-a1i/appclone/internal/core/appinfo"
-	"github.com/tt-a1i/appclone/internal/core/doctor"
-	"github.com/tt-a1i/appclone/internal/core/macos"
-	"github.com/tt-a1i/appclone/internal/core/signing"
+	"github.com/tt-a1i/doppel/internal/core/appinfo"
+	"github.com/tt-a1i/doppel/internal/core/doctor"
+	"github.com/tt-a1i/doppel/internal/core/macos"
+	"github.com/tt-a1i/doppel/internal/core/signing"
 )
 
 func newInspectCmd() *cobra.Command {

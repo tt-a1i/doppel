@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tt-a1i/appclone/internal/core/doctor"
-	"github.com/tt-a1i/appclone/internal/core/macos"
+	"github.com/tt-a1i/doppel/internal/core/doctor"
+	"github.com/tt-a1i/doppel/internal/core/macos"
 )
 
 func newDoctorCmd() *cobra.Command {

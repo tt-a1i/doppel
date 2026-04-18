@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tt-a1i/appclone/internal/core/apperr"
+	"github.com/tt-a1i/doppel/internal/core/apperr"
 )
 
 func mkSourceBundle(t *testing.T, bundleID string) string {

@@ -19,10 +19,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/tt-a1i/appclone/internal/core/appinfo"
-	"github.com/tt-a1i/appclone/internal/core/apperr"
-	"github.com/tt-a1i/appclone/internal/core/clone"
-	"github.com/tt-a1i/appclone/internal/core/macos"
+	"github.com/tt-a1i/doppel/internal/core/appinfo"
+	"github.com/tt-a1i/doppel/internal/core/apperr"
+	"github.com/tt-a1i/doppel/internal/core/clone"
+	"github.com/tt-a1i/doppel/internal/core/macos"
 )
 
 // ——— Layout ———————————————————————————————————————————————————————
@@ -1207,13 +1207,13 @@ func humanizeErr(err error) (headline, detail string) {
 			"The original app ships with extra macOS xattrs. Try 'xattr -rc' on the source, or pick a different app.\n\n" + raw
 	case strings.Contains(raw, "codesign failed"):
 		return "Re-signing the clone failed.",
-			"codesign rejected one of the nested items. Try 'appclone doctor' on the source for hints.\n\n" + raw
+			"codesign rejected one of the nested items. Try 'doppel doctor' on the source for hints.\n\n" + raw
 	case strings.Contains(raw, "ditto failed"):
 		return "Copying the bundle failed.",
 			"Usually a permissions issue or the source disappeared mid-copy. Try a different Target.\n\n" + raw
 	case strings.Contains(raw, "verify failed"):
 		return "Clone was created but the signature doesn't verify.",
-			"The copy exists on disk but macOS may refuse to launch it. Try 'appclone doctor' for details.\n\n" + raw
+			"The copy exists on disk but macOS may refuse to launch it. Try 'doppel doctor' for details.\n\n" + raw
 	default:
 		return "Something went wrong.", raw
 	}

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tt-a1i/appclone/internal/core/appinfo"
-	"github.com/tt-a1i/appclone/internal/core/macos"
+	"github.com/tt-a1i/doppel/internal/core/appinfo"
+	"github.com/tt-a1i/doppel/internal/core/macos"
 )
 
 type VerifyReport struct {

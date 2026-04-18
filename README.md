@@ -1,18 +1,18 @@
-# appclone
+# doppel
 
 A macOS-only tool to clone a `.app` bundle into a second, separately-launchable app instance with a new bundle identifier and local ad-hoc re-signing.
 
 One binary, two modes:
 
-- **TUI** (default): `appclone` — full-screen interactive app picker → config form → live progress → result page
-- **CLI**: `appclone <inspect|clone|verify|doctor> …` — scriptable, `--json` output
+- **TUI** (default): `doppel` — full-screen interactive app picker → config form → live progress → result page
+- **CLI**: `doppel <inspect|clone|verify|doctor> …` — scriptable, `--json` output
 
 ## Install
 
 ```bash
-git clone https://github.com/tt-a1i/appclone
-cd appclone
-make build         # produces ./appclone
+git clone https://github.com/tt-a1i/doppel
+cd doppel
+make build         # produces ./doppel
 make install       # copies to $GOPATH/bin (optional)
 ```
 
@@ -23,7 +23,7 @@ Requires macOS and Go 1.26+. At runtime, shells out to `/usr/bin/ditto`, `/usr/b
 ### Interactive (TUI)
 
 ```bash
-appclone
+doppel
 ```
 
 Launches a full-screen picker that scans `/Applications`, `/Applications/Utilities`, and `~/Applications`. Pick an app, fill in the new name / bundle ID, watch the clone pipeline run.
@@ -32,31 +32,31 @@ Launches a full-screen picker that scans `/Applications`, `/Applications/Utiliti
 
 ```bash
 # Enumerate installable apps (agent-friendly)
-appclone list
-appclone list --json
+doppel list
+doppel list --json
 
 # Inspect a specific bundle
-appclone inspect /Applications/cmux.app
-appclone inspect /Applications/cmux.app --json
+doppel inspect /Applications/cmux.app
+doppel inspect /Applications/cmux.app --json
 
 # Dry-run (derive plan, touch nothing)
-appclone clone /Applications/cmux.app --name cmux2 --bundle-id com.example.cmux2 --dry-run
+doppel clone /Applications/cmux.app --name cmux2 --bundle-id com.example.cmux2 --dry-run
 
 # Real clone
-appclone clone /Applications/cmux.app \
+doppel clone /Applications/cmux.app \
   --name cmux2 \
   --bundle-id com.example.cmux2 \
   --target /Applications/cmux2.app
 
 # Re-clone over an existing target (deletes target first; target must end in .app)
-appclone clone /Applications/cmux.app --name cmux2 --bundle-id com.example.cmux2 --force
+doppel clone /Applications/cmux.app --name cmux2 --bundle-id com.example.cmux2 --force
 
-appclone verify /Applications/cmux2.app
-appclone doctor /Applications/cmux.app
+doppel verify /Applications/cmux2.app
+doppel doctor /Applications/cmux.app
 ```
 
 Global flags: `--json` (structured output), `--verbose`.
-Run `appclone <cmd> --help` for per-command flag lists.
+Run `doppel <cmd> --help` for per-command flag lists.
 
 ### Exit codes (for scripting)
 
@@ -83,13 +83,13 @@ Known trade-offs:
 
 - **Ad-hoc signing is local-launchable, not vendor-trust-valid.** `spctl` will reject the clone; Gatekeeper will prompt on first launch. That's normal — local ad-hoc signatures are what Apple wants to see for local dev builds, not distribution.
 - **Never modifies the source bundle.** Source app is treated read-only end to end.
-- **Supports `--force` for existing `.app` targets.** appclone can delete and recreate an existing clone target, but still refuses dangerous non-`.app` paths.
+- **Supports `--force` for existing `.app` targets.** doppel can delete and recreate an existing clone target, but still refuses dangerous non-`.app` paths.
 
 ## What's Supported
 
 See [`docs/support-matrix.md`](docs/support-matrix.md) for per-app results and [`docs/failure-modes.md`](docs/failure-modes.md) for the doctor rule catalog.
 
-TL;DR: Swift/Rust/native apps clone very cleanly. Electron support is app-specific: appclone rewrites helper bundle IDs under `Contents/Frameworks/*.app`, preserves helper-compatible bundle names, and rewrites Electron `app.asar` package identity when needed. Cherry Studio is now verified as a working simultaneous second instance; Claude still fails its own `app.asar` integrity check at startup. Sparkle-updated apps clone fine but the updater will break. Sandboxed apps clone fine but start with empty containers. Apps shipped with `codesign --strict` issues on disk (e.g., Chrome's FinderInfo xattrs) are flagged before any clone runs.
+TL;DR: Swift/Rust/native apps clone very cleanly. Electron support is app-specific: doppel rewrites helper bundle IDs under `Contents/Frameworks/*.app`, preserves helper-compatible bundle names, and rewrites Electron `app.asar` package identity when needed. Cherry Studio is now verified as a working simultaneous second instance; Claude still fails its own `app.asar` integrity check at startup. Sparkle-updated apps clone fine but the updater will break. Sandboxed apps clone fine but start with empty containers. Apps shipped with `codesign --strict` issues on disk (e.g., Chrome's FinderInfo xattrs) are flagged before any clone runs.
 
 ## Caveats
 

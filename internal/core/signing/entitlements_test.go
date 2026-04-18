@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tt-a1i/appclone/internal/core/plistops"
+	"github.com/tt-a1i/doppel/internal/core/plistops"
 )
 
 func TestFilterEntitlements_StripsIdentityKeys(t *testing.T) {

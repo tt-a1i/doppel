@@ -1,4 +1,4 @@
-module github.com/tt-a1i/appclone
+module github.com/tt-a1i/doppel
 
 go 1.26.1
 

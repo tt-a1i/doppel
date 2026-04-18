@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/tt-a1i/appclone/internal/core/apperr"
+	"github.com/tt-a1i/doppel/internal/core/apperr"
 )
 
 func TestRequireMacOS(t *testing.T) {

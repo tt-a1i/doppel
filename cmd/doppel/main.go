@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/tt-a1i/appclone/internal/cli"
-	"github.com/tt-a1i/appclone/internal/tui"
+	"github.com/tt-a1i/doppel/internal/cli"
+	"github.com/tt-a1i/doppel/internal/tui"
 )
 
 func main() {

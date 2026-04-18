@@ -6,10 +6,10 @@ import (
 
 	"howett.net/plist"
 
-	"github.com/tt-a1i/appclone/internal/core/appinfo"
-	"github.com/tt-a1i/appclone/internal/core/macos"
-	"github.com/tt-a1i/appclone/internal/core/plistops"
-	"github.com/tt-a1i/appclone/internal/core/signing"
+	"github.com/tt-a1i/doppel/internal/core/appinfo"
+	"github.com/tt-a1i/doppel/internal/core/macos"
+	"github.com/tt-a1i/doppel/internal/core/plistops"
+	"github.com/tt-a1i/doppel/internal/core/signing"
 )
 
 type Finding struct {
@@ -169,7 +169,7 @@ func ruleElectron(in Input) *Finding {
 				Severity: "info",
 				Category: "helper",
 				Evidence: []string{item.Path},
-				Fix:      "Electron helpers embed the parent bundle ID. appclone rewrites helper Info.plists before signing so the clone stays internally consistent.",
+				Fix:      "Electron helpers embed the parent bundle ID. doppel rewrites helper Info.plists before signing so the clone stays internally consistent.",
 			}
 		}
 	}

@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// DefaultScanDirs returns the standard locations appclone scans for apps.
+// DefaultScanDirs returns the standard locations doppel scans for apps.
 func DefaultScanDirs() []string {
 	dirs := []string{"/Applications", "/Applications/Utilities"}
 	if home, err := os.UserHomeDir(); err == nil && home != "" {

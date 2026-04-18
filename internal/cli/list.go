@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tt-a1i/appclone/internal/core/appinfo"
+	"github.com/tt-a1i/doppel/internal/core/appinfo"
 )
 
 func newListCmd() *cobra.Command {

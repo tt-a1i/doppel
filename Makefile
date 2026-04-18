@@ -1,9 +1,9 @@
 .PHONY: build test vet run clean
 
-BIN := appclone
+BIN := doppel
 
 build:
-	go build -o $(BIN) ./cmd/appclone
+	go build -o $(BIN) ./cmd/doppel
 
 test:
 	go test ./...

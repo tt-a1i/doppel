@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/tt-a1i/appclone/internal/core/appinfo"
-	"github.com/tt-a1i/appclone/internal/core/apperr"
-	"github.com/tt-a1i/appclone/internal/core/plistops"
-	"github.com/tt-a1i/appclone/internal/core/signing"
+	"github.com/tt-a1i/doppel/internal/core/appinfo"
+	"github.com/tt-a1i/doppel/internal/core/apperr"
+	"github.com/tt-a1i/doppel/internal/core/plistops"
+	"github.com/tt-a1i/doppel/internal/core/signing"
 )
 
 type PlanOptions struct {

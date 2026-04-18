@@ -7,9 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tt-a1i/appclone/internal/core/appinfo"
-	"github.com/tt-a1i/appclone/internal/core/apperr"
-	"github.com/tt-a1i/appclone/internal/core/exitcodes"
+	"github.com/tt-a1i/doppel/internal/core/appinfo"
+	"github.com/tt-a1i/doppel/internal/core/apperr"
+	"github.com/tt-a1i/doppel/internal/core/exitcodes"
 )
 
 var (
@@ -18,9 +18,9 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "appclone",
+	Use:   "doppel",
 	Short: "Clone a macOS .app bundle with a new identity",
-	Long: "AppClone creates a second, locally-signed copy of a macOS app.\n" +
+	Long: "Doppel creates a second, locally-signed copy of a macOS app.\n" +
 		"Run without arguments to launch the interactive TUI.",
 	SilenceUsage:  true,
 	SilenceErrors: true,
