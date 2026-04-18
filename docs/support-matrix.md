@@ -6,11 +6,11 @@ Results from cloning real apps on macOS. "Cloned" means the pipeline finished wi
 |---|---|---|---|---|---|---|---|
 | cmux | Swift + Sparkle | 3 | 0 | yes (0 filtered) | ✅ | ✅ | Sparkle present — see `sparkle_present` finding |
 | Alacritty | Rust, single-binary | 1 | 0 | none | ✅ | ✅ | Cleanest case — no frameworks |
-| Ghostty | Swift + C | 2 | 0 | yes | ✅ | ✅ | Trivial |
+| Ghostty | Swift + C | 3 | 0 | yes | ✅ | ✅ | Re-verified on 2026-04-18 |
 | LocalSend | Flutter | 28 | 1 | yes (1 filtered) | ✅ | ✅ | Lots of Flutter plugin bundles under `Contents/Frameworks/`; helper rewrite applied |
 | BetterDisplay | Swift + helpers | 4 | 0 | yes | ✅ | ⚠ | Launches, but menu-bar privileges may need re-grant on clone |
-| Cherry Studio | Electron | many | multiple | yes | ✅* | ⚠ | *doctor flags as Electron; clone works but has not been verified to launch cleanly |
-| Claude | Electron | many | multiple | yes | ✅* | ⚠ | *same as above |
+| Cherry Studio | Electron | 9 | 4 | yes | ✅ | ✅ | Verified on 2026-04-18 with source + clone running simultaneously; clone uses separate `~/Library/Application Support/Cherry Studio Clone` |
+| Claude | Electron | 9 | 4 | yes | ✅ | ✗ | Clone completes and passes `codesign --verify --deep --strict`, but startup fails with `Failed to get integrity for validatable asar archive: Resources/app.asar` |
 | Safari | SIP-protected Apple app | — | — | — | ✗ | — | `/Applications/Safari.app` is technically cloneable but source bundle cannot be modified; the clone target is OK, but Safari hard-codes Apple-signed expectations and won't launch |
 | Google Chrome | Chrome + Helpers in Framework | — | — | — | ✗ | — | Source fails `codesign --verify --strict` due to FinderInfo xattrs. Doctor correctly flags `codesign_failed` before any clone. Not an appclone bug — Chrome ships with non-strict resources |
 

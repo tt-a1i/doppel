@@ -73,6 +73,7 @@ func discoverAt(bundlePath string, depth int) []SignableItem {
 	// Helpers live in a few known locations; recurse into each because
 	// helpers commonly ship their own nested Frameworks.
 	helperDirs := []string{
+		filepath.Join(contents, "Frameworks"),
 		filepath.Join(contents, "Helpers"),
 		filepath.Join(contents, "Library", "Helpers"),
 	}

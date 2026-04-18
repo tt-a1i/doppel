@@ -16,7 +16,7 @@ make build         # produces ./appclone
 make install       # copies to $GOPATH/bin (optional)
 ```
 
-Requires macOS and Go 1.21+. At runtime, shells out to `/usr/bin/ditto`, `/usr/bin/codesign`, and `/usr/sbin/spctl`, all of which are standard on macOS.
+Requires macOS and Go 1.26+. At runtime, shells out to `/usr/bin/ditto`, `/usr/bin/codesign`, and `/usr/sbin/spctl`, all of which are standard on macOS.
 
 ## Usage
 
@@ -83,13 +83,13 @@ Known trade-offs:
 
 - **Ad-hoc signing is local-launchable, not vendor-trust-valid.** `spctl` will reject the clone; Gatekeeper will prompt on first launch. That's normal — local ad-hoc signatures are what Apple wants to see for local dev builds, not distribution.
 - **Never modifies the source bundle.** Source app is treated read-only end to end.
-- **No `--force`** — if the target path already exists, appclone refuses and tells you. You can decide whether to delete the existing clone manually.
+- **Supports `--force` for existing `.app` targets.** appclone can delete and recreate an existing clone target, but still refuses dangerous non-`.app` paths.
 
 ## What's Supported
 
 See [`docs/support-matrix.md`](docs/support-matrix.md) for per-app results and [`docs/failure-modes.md`](docs/failure-modes.md) for the doctor rule catalog.
 
-TL;DR: Swift/Rust/native apps clone very cleanly. Electron clones structurally but embeds parent bundle IDs in helpers — appclone rewrites those automatically. Sparkle-updated apps clone fine but the updater will break. Sandboxed apps clone fine but start with empty containers. Apps shipped with `codesign --strict` issues on disk (e.g., Chrome's FinderInfo xattrs) are flagged before any clone runs.
+TL;DR: Swift/Rust/native apps clone very cleanly. Electron support is app-specific: appclone rewrites helper bundle IDs under `Contents/Frameworks/*.app`, preserves helper-compatible bundle names, and rewrites Electron `app.asar` package identity when needed. Cherry Studio is now verified as a working simultaneous second instance; Claude still fails its own `app.asar` integrity check at startup. Sparkle-updated apps clone fine but the updater will break. Sandboxed apps clone fine but start with empty containers. Apps shipped with `codesign --strict` issues on disk (e.g., Chrome's FinderInfo xattrs) are flagged before any clone runs.
 
 ## Caveats
 

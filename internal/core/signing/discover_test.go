@@ -129,6 +129,33 @@ func TestDiscover_NestedHelperFrameworkSignedFirst(t *testing.T) {
 	}
 }
 
+func TestDiscover_FrameworkHelperAppSignedFirst(t *testing.T) {
+	app := mkBundle(t, t.TempDir(), "Outer.app")
+	helper := mkBundle(t, filepath.Join(app, "Contents", "Frameworks"), "Helper.app")
+	mkDir(t, filepath.Join(helper, "Contents", "Frameworks", "Deep.framework"))
+
+	items, err := Discover(app)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Electron-style helpers live in Contents/Frameworks/*.app.
+	// They must be discovered and recursed so bundle IDs get rewritten
+	// and the helper gets re-signed when the parent bundle ID changes.
+	if len(items) != 3 {
+		t.Fatalf("expected 3 items, got %d: %+v", len(items), items)
+	}
+	if items[0].Depth != 2 || items[0].Kind != KindFramework {
+		t.Errorf("items[0] = %+v, expected depth=2 framework", items[0])
+	}
+	if items[1].Depth != 1 || items[1].Kind != KindHelperApp {
+		t.Errorf("items[1] = %+v, expected depth=1 helper app", items[1])
+	}
+	if items[2].Depth != 0 || items[2].Kind != KindMainBundle {
+		t.Errorf("items[2] = %+v, expected depth=0 main bundle", items[2])
+	}
+}
+
 func hasSuffix(s, suffix string) bool {
 	return len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix
 }

@@ -30,7 +30,12 @@ func mkSourceBundle(t *testing.T, bundleID string) string {
 
 func withHelper(t *testing.T, app, helperName, helperBundleID string) {
 	t.Helper()
-	hd := filepath.Join(app, "Contents", "Helpers")
+	withHelperAt(t, filepath.Join(app, "Contents", "Helpers"), helperName, helperBundleID)
+}
+
+func withHelperAt(t *testing.T, root, helperName, helperBundleID string) {
+	t.Helper()
+	hd := root
 	if err := os.MkdirAll(hd, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -207,5 +212,34 @@ func TestDerivePlan_HelperEqualToParent(t *testing.T) {
 	}
 	if plan.HelperRewrites[0].NewBundleID != "com.example.clone" {
 		t.Errorf("rewrite NewBundleID = %q, want com.example.clone", plan.HelperRewrites[0].NewBundleID)
+	}
+}
+
+func TestDerivePlan_FrameworkHelperRewritePrefix(t *testing.T) {
+	src := mkSourceBundle(t, "com.example.app")
+	withHelperAt(t, filepath.Join(src, "Contents", "Frameworks"), "Electron Helper.app", "com.example.app.helper")
+
+	target := filepath.Join(t.TempDir(), "dst.app")
+	plan, err := DerivePlan(PlanOptions{
+		SourceApp: src,
+		TargetApp: target,
+		Name:      "cloned",
+		BundleID:  "com.example.clone",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.HelperRewrites) != 1 {
+		t.Fatalf("expected 1 rewrite, got %d: %+v", len(plan.HelperRewrites), plan.HelperRewrites)
+	}
+	r := plan.HelperRewrites[0]
+	if r.OldBundleID != "com.example.app.helper" {
+		t.Errorf("Old = %q", r.OldBundleID)
+	}
+	if r.NewBundleID != "com.example.clone.helper" {
+		t.Errorf("New = %q", r.NewBundleID)
+	}
+	if !strings.HasSuffix(r.RelativePath, filepath.Join("Contents", "Frameworks", "Electron Helper.app")) {
+		t.Errorf("RelativePath = %q", r.RelativePath)
 	}
 }

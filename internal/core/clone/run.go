@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/tt-a1i/appclone/internal/core/electron"
 	"github.com/tt-a1i/appclone/internal/core/macos"
 	"github.com/tt-a1i/appclone/internal/core/plistops"
 	"github.com/tt-a1i/appclone/internal/core/signing"
@@ -182,10 +183,23 @@ func MutatePlists(plan *ClonePlan) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read target plist: %w", err)
 	}
-	plistops.SetIdentity(p, plan.BundleIDAfter, plan.NameAfter, plan.DisplayNameAfter)
+	sourceName, _ := p["CFBundleName"].(string)
+	sourceDisplayName, _ := p["CFBundleDisplayName"].(string)
+
+	nameAfter := plan.NameAfter
+	if preserveBundleName(plan) {
+		// Electron-style apps derive helper bundle names from the main
+		// CFBundleName (e.g. "Cherry Studio Helper"). Rewriting it breaks
+		// helper discovery at launch, even if bundle IDs are updated.
+		nameAfter = ""
+	}
+	plistops.SetIdentity(p, plan.BundleIDAfter, nameAfter, plan.DisplayNameAfter)
 	stripped := plistops.StripIntegrityKeys(p)
 	if err := plistops.Write(mainPlist, p, format); err != nil {
 		return nil, fmt.Errorf("write target plist: %w", err)
+	}
+	if err := rewriteElectronPackageIdentity(plan, sourceName, sourceDisplayName); err != nil {
+		return nil, err
 	}
 
 	for _, r := range plan.HelperRewrites {
@@ -201,6 +215,32 @@ func MutatePlists(plan *ClonePlan) ([]string, error) {
 		}
 	}
 	return stripped, nil
+}
+
+func rewriteElectronPackageIdentity(plan *ClonePlan, sourceName, sourceDisplayName string) error {
+	packageName, productName := electron.DerivePackageIdentity(
+		plan.NameAfter,
+		plan.DisplayNameAfter,
+		sourceName,
+		sourceDisplayName,
+	)
+	if _, err := electron.RewritePackageIdentity(
+		filepath.Join(plan.TargetApp, "Contents", "Resources", "app.asar"),
+		packageName,
+		productName,
+	); err != nil {
+		return fmt.Errorf("rewrite electron package identity: %w", err)
+	}
+	return nil
+}
+
+func preserveBundleName(plan *ClonePlan) bool {
+	for _, r := range plan.HelperRewrites {
+		if strings.HasPrefix(filepath.ToSlash(r.RelativePath), "Contents/Frameworks/") {
+			return true
+		}
+	}
+	return false
 }
 
 // buildResignSet returns only the signables whose on-disk contents we
