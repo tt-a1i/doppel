@@ -9,6 +9,26 @@ One binary, two modes:
 
 ## Install
 
+### Homebrew (recommended)
+
+```bash
+brew install tt-a1i/tap/doppel
+```
+
+macOS may flag the unsigned binary on first launch. If so:
+
+```bash
+xattr -dr com.apple.quarantine "$(brew --prefix)/bin/doppel"
+```
+
+### Go
+
+```bash
+go install github.com/tt-a1i/doppel/cmd/doppel@latest
+```
+
+### From source
+
 ```bash
 git clone https://github.com/tt-a1i/doppel
 cd doppel
@@ -16,7 +36,7 @@ make build         # produces ./doppel
 make install       # copies to $GOPATH/bin (optional)
 ```
 
-Requires macOS and Go 1.26+. At runtime, shells out to `/usr/bin/ditto`, `/usr/bin/codesign`, and `/usr/sbin/spctl`, all of which are standard on macOS.
+Requires macOS (Intel or Apple Silicon). The source / `go install` paths need Go 1.26+. At runtime, `doppel` shells out to `/usr/bin/ditto`, `/usr/bin/codesign`, and `/usr/sbin/spctl`, all standard on macOS.
 
 ## Usage
 
