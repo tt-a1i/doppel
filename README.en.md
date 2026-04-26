@@ -2,9 +2,14 @@
 
 # doppel
 
+[![ci](https://github.com/tt-a1i/doppel/actions/workflows/ci.yml/badge.svg)](https://github.com/tt-a1i/doppel/actions/workflows/ci.yml)
+[![release](https://github.com/tt-a1i/doppel/actions/workflows/release.yml/badge.svg)](https://github.com/tt-a1i/doppel/actions/workflows/release.yml)
+
 ![doppel hero image](assets/doppel.png)
 
 A macOS-only tool to clone a `.app` bundle into a second, separately-launchable app instance with a new bundle identifier and local ad-hoc re-signing.
+
+> Current status: public beta. doppel is for local multi-instance use, isolated app configuration, and clone testing on macOS. It is not a universal app multi-opener and does not bypass vendor integrity checks, App Store restrictions, SIP, or notarization.
 
 One binary, two modes:
 
@@ -44,6 +49,28 @@ Requires macOS (Intel or Apple Silicon). The source / `go install` paths need Go
 
 ## Usage
 
+### Recommended flow
+
+For ordinary users, use this flow:
+
+```bash
+# 1. Diagnose compatibility first
+doppel doctor /Applications/cmux.app
+
+# 2. Dry-run to confirm target path and bundle ID
+doppel clone /Applications/cmux.app --name cmux2 --bundle-id com.example.cmux2 --dry-run
+
+# 3. Clone for real and verify launch survival
+doppel clone /Applications/cmux.app \
+  --name cmux2 \
+  --bundle-id com.example.cmux2 \
+  --launch-test
+```
+
+`clone` writes to `~/Applications/<Name>.app` by default so ordinary users do not need permission to write into `/Applications`. Use `--target /Applications/cmux2.app` when you explicitly want the system Applications folder.
+
+`clone` runs preflight diagnostics by default. If it finds an error-level issue, such as a source app that already fails `codesign --strict`, it stops before writing to disk. Use `--skip-doctor` only when you understand the risk.
+
 ### Interactive (TUI)
 
 ```bash
@@ -70,12 +97,12 @@ doppel clone /Applications/cmux.app --name cmux2 --bundle-id com.example.cmux2 -
 doppel clone /Applications/cmux.app \
   --name cmux2 \
   --bundle-id com.example.cmux2 \
-  --target /Applications/cmux2.app
+  --launch-test
 
 # Re-clone over an existing target (deletes target first; target must end in .app)
 doppel clone /Applications/cmux.app --name cmux2 --bundle-id com.example.cmux2 --force
 
-doppel verify /Applications/cmux2.app
+doppel verify ~/Applications/cmux2.app
 doppel doctor /Applications/cmux.app
 ```
 
@@ -107,7 +134,9 @@ Known trade-offs:
 
 - **Ad-hoc signing is local-launchable, not vendor-trust-valid.** `spctl` will reject the clone; Gatekeeper will prompt on first launch. That's normal — local ad-hoc signatures are what Apple wants to see for local dev builds, not distribution.
 - **Never modifies the source bundle.** Source app is treated read-only end to end.
+- **Defaults to `~/Applications`.** This avoids admin permissions; pass `--target` explicitly when you want the system `/Applications` folder.
 - **Supports `--force` for existing `.app` targets.** doppel can delete and recreate an existing clone target, but still refuses dangerous non-`.app` paths.
+- **Preflight is enabled by default.** `clone` runs doctor rules first; error-level findings block the clone, while warn/info findings are shown and the clone continues.
 
 ## What's Supported
 
@@ -115,9 +144,12 @@ See [`docs/support-matrix.md`](docs/support-matrix.md) for per-app results and [
 
 TL;DR: Swift/Rust/native apps clone very cleanly. Electron support is app-specific: doppel rewrites helper bundle IDs under `Contents/Frameworks/*.app`, preserves helper-compatible bundle names, and rewrites Electron `app.asar` package identity when needed. Cherry Studio is now verified as a working simultaneous second instance; Claude still fails its own `app.asar` integrity check at startup. Sparkle-updated apps clone fine but the updater will break. Sandboxed apps clone fine but start with empty containers. Apps shipped with `codesign --strict` issues on disk (e.g., Chrome's FinderInfo xattrs) are flagged before any clone runs.
 
+Pre-release real-app regression testing is documented in [`docs/smoke-testing.md`](docs/smoke-testing.md). The Developer ID signing and notarization path is documented in [`docs/release-signing.md`](docs/release-signing.md).
+
 ## Caveats
 
 - macOS only (enforced at startup)
-- Experimental — not all apps will clone cleanly; `doctor` surfaces the common failure patterns
+- Public beta — not all apps will clone cleanly; `doctor` surfaces the common failure patterns
 - App Store apps are out of scope for v1
 - Does not preserve vendor notarization, update channels, or entitlement identities tied to the original team
+- Does not guarantee launch for apps with strong self-integrity checks; use `--launch-test` to verify

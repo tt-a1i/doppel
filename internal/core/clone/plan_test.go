@@ -1,6 +1,7 @@
 package clone
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -67,6 +68,29 @@ func TestDerivePlan_RequiresNameAndBundleID(t *testing.T) {
 	}
 }
 
+func TestHelperRewriteJSONUsesStableSnakeCase(t *testing.T) {
+	b, err := json.Marshal(HelperRewrite{
+		RelativePath: "Contents/Helpers/H.app",
+		OldBundleID:  "com.old.app.helper",
+		NewBundleID:  "com.new.app.helper",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"relative_path", "old_bundle_id", "new_bundle_id"} {
+		if _, ok := got[key]; !ok {
+			t.Fatalf("missing JSON key %q in %s", key, b)
+		}
+	}
+	if _, ok := got["RelativePath"]; ok {
+		t.Fatalf("unstable Go field key leaked in JSON: %s", b)
+	}
+}
+
 func TestDerivePlan_DefaultTargetUnderDefaultDir(t *testing.T) {
 	src := mkSourceBundle(t, "com.example.app")
 
@@ -85,6 +109,19 @@ func TestDerivePlan_DefaultTargetUnderDefaultDir(t *testing.T) {
 	wantTarget := filepath.Join(DefaultTargetDir, "myclone.app")
 	if plan.TargetApp != wantTarget {
 		t.Errorf("TargetApp = %q, want %q", plan.TargetApp, wantTarget)
+	}
+}
+
+func TestDefaultTargetDirPrefersUserApplications(t *testing.T) {
+	home := t.TempDir()
+	userApps := filepath.Join(home, "Applications")
+	if err := os.MkdirAll(userApps, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+
+	if got := defaultTargetDir(); got != userApps {
+		t.Fatalf("default target dir = %q, want %q", got, userApps)
 	}
 }
 

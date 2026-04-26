@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -195,6 +196,24 @@ func TestRun_DryRunEmitsAllStagesAsSkip(t *testing.T) {
 		if call.Name == "ditto" {
 			t.Errorf("dry-run should not call ditto, got %v", call)
 		}
+	}
+}
+
+func TestRun_CopyFailureReturnsStageFailure(t *testing.T) {
+	plan := &ClonePlan{SourceApp: "/tmp/src.app", TargetApp: "/tmp/dst.app"}
+	ex := &macos.FakeExecer{Default: macos.FakeResponse{ExitCode: 1, Stderr: []byte("copy denied")}}
+	events := make(chan StageEvent, 8)
+
+	_, err := Run(context.Background(), plan, ex, events)
+	if err == nil {
+		t.Fatal("expected copy failure")
+	}
+	var stageErr StageFailure
+	if !errors.As(err, &stageErr) {
+		t.Fatalf("error type = %T, want StageFailure", err)
+	}
+	if stageErr.Stage != StageCopy {
+		t.Fatalf("stage = %s, want %s", stageErr.Stage, StageCopy)
 	}
 }
 

@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/tt-a1i/doppel/internal/core/appinfo"
 	"github.com/tt-a1i/doppel/internal/core/apperr"
+	"github.com/tt-a1i/doppel/internal/core/appinfo"
 	"github.com/tt-a1i/doppel/internal/core/plistops"
 	"github.com/tt-a1i/doppel/internal/core/signing"
 )
@@ -15,7 +15,7 @@ import (
 type PlanOptions struct {
 	SourceApp   string
 	Name        string
-	TargetApp   string // optional; default /Applications/<Name>.app
+	TargetApp   string // optional; default <DefaultTargetDir>/<Name>.app
 	BundleID    string
 	DisplayName string // optional; default Name
 	DryRun      bool
@@ -30,9 +30,9 @@ type HelperRewrite struct {
 	// RelativePath is relative to the bundle root, e.g.
 	// "Contents/Helpers/My Helper.app". Apply to TargetApp to get the real
 	// file path.
-	RelativePath string
-	OldBundleID  string
-	NewBundleID  string
+	RelativePath string `json:"relative_path"`
+	OldBundleID  string `json:"old_bundle_id"`
+	NewBundleID  string `json:"new_bundle_id"`
 }
 
 type ClonePlan struct {
@@ -48,8 +48,17 @@ type ClonePlan struct {
 	HelperRewrites   []HelperRewrite
 }
 
-// DefaultTargetDir is /Applications; overridable for tests.
-var DefaultTargetDir = "/Applications"
+// DefaultTargetDir is where clones go when --target is omitted. Prefer the
+// per-user Applications folder so ordinary users do not need admin privileges.
+// Overridable for tests.
+var DefaultTargetDir = defaultTargetDir()
+
+func defaultTargetDir() string {
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return filepath.Join(home, "Applications")
+	}
+	return "/Applications"
+}
 
 func DerivePlan(opts PlanOptions) (*ClonePlan, error) {
 	if opts.SourceApp == "" {

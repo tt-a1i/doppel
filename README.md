@@ -2,9 +2,14 @@
 
 # doppel
 
+[![ci](https://github.com/tt-a1i/doppel/actions/workflows/ci.yml/badge.svg)](https://github.com/tt-a1i/doppel/actions/workflows/ci.yml)
+[![release](https://github.com/tt-a1i/doppel/actions/workflows/release.yml/badge.svg)](https://github.com/tt-a1i/doppel/actions/workflows/release.yml)
+
 ![doppel hero image](assets/doppel.png)
 
 一个 macOS 专用的命令行工具，把 `.app` bundle 克隆成一个独立可运行的第二个实例，具备新的 bundle identifier 和本地 ad-hoc 重签名。
+
+> 当前定位：公开 beta。doppel 面向需要本地多实例、隔离配置、测试克隆 app 的 macOS 用户；它不是万能的 app 多开器，也不会绕过厂商完整性校验、App Store 限制、SIP 或 notarization。
 
 一份二进制，两种模式：
 
@@ -44,6 +49,28 @@ make install       # 拷到 $GOPATH/bin（可选）
 
 ## 使用
 
+### 推荐流程
+
+普通用户建议按这个顺序走：
+
+```bash
+# 1. 先诊断兼容性
+doppel doctor /Applications/cmux.app
+
+# 2. 试跑，确认目标路径和 bundle ID
+doppel clone /Applications/cmux.app --name cmux2 --bundle-id com.example.cmux2 --dry-run
+
+# 3. 真实克隆，并做启动存活测试
+doppel clone /Applications/cmux.app \
+  --name cmux2 \
+  --bundle-id com.example.cmux2 \
+  --launch-test
+```
+
+`clone` 默认写入 `~/Applications/<Name>.app`，避免普通用户碰到 `/Applications` 权限问题。也可以通过 `--target /Applications/cmux2.app` 显式指定系统 Applications 目录。
+
+`clone` 默认会先跑一次 preflight。若发现 error 级问题（例如源 app 自身 `codesign --strict` 不通过），会在写入磁盘前停止。只有你明确知道风险时才使用 `--skip-doctor`。
+
 ### 交互式（TUI）
 
 ```bash
@@ -70,12 +97,12 @@ doppel clone /Applications/cmux.app --name cmux2 --bundle-id com.example.cmux2 -
 doppel clone /Applications/cmux.app \
   --name cmux2 \
   --bundle-id com.example.cmux2 \
-  --target /Applications/cmux2.app
+  --launch-test
 
 # 覆盖已存在的 .app 目标（先删后建；目标必须以 .app 结尾）
 doppel clone /Applications/cmux.app --name cmux2 --bundle-id com.example.cmux2 --force
 
-doppel verify /Applications/cmux2.app
+doppel verify ~/Applications/cmux2.app
 doppel doctor /Applications/cmux.app
 ```
 
@@ -107,7 +134,9 @@ doppel doctor /Applications/cmux.app
 
 - **Ad-hoc 签名本机可运行，但不具备厂商信任。** `spctl` 会拒绝克隆；Gatekeeper 首次启动会弹窗。这是正常的——本地 ad-hoc 签名就是 Apple 对本地开发构建的预期，不是分发场景。
 - **永不修改源 bundle。** 源 app 全程只读。
+- **默认写入 `~/Applications`。** 这样不需要管理员权限；需要放到系统 `/Applications` 时请显式传 `--target`。
 - **`--force` 支持已有 `.app` 目标。** doppel 可以删掉已有克隆目标再建，但仍然拒绝危险的非 `.app` 路径。
+- **preflight 默认开启。** `clone` 会先跑 doctor 规则；error 级 finding 会阻断克隆，warn/info 会作为提示继续显示。
 
 ## 支持情况
 
@@ -115,9 +144,12 @@ doppel doctor /Applications/cmux.app
 
 速览：Swift/Rust/原生 app 克隆得非常干净。Electron 支持因应用而异：doppel 会改写 `Contents/Frameworks/*.app` 下的 helper bundle ID、保留 helper 依赖的 bundle name、必要时改写 Electron `app.asar` 的包身份。Cherry Studio 已验证可作为独立第二实例与源 app 同时运行；Claude 仍会在启动时卡在自己的 `app.asar` 完整性校验。Sparkle 自更新 app 可以克隆但更新器会坏。沙盒 app 可以克隆，但容器目录是空的。源盘上带有 `codesign --strict` 问题的 app（例如 Chrome 的 FinderInfo xattrs）会在克隆开始前被标记。
 
+发布前真实 app 回归流程见 [`docs/smoke-testing.md`](docs/smoke-testing.md)。Developer ID 签名和 notarization 路线见 [`docs/release-signing.md`](docs/release-signing.md)。
+
 ## 注意
 
 - 仅 macOS（启动时强制检查）
-- 实验性质——不是所有 app 都能干净克隆；`doctor` 会点出常见失败模式
+- 公开 beta——不是所有 app 都能干净克隆；`doctor` 会点出常见失败模式
 - App Store 应用不在 v1 范围
 - 不保留厂商公证、更新渠道或与原 team 绑定的 entitlement 身份
+- 不保证强完整性自检 app 能启动；这种情况请用 `--launch-test` 验证

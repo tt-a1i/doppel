@@ -1,10 +1,38 @@
 package appinfo
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestAppIdentityJSONUsesStableSnakeCase(t *testing.T) {
+	b, err := json.Marshal(AppIdentity{
+		AppPath:        "/Applications/Foo.app",
+		BundleID:       "com.example.foo",
+		BundleName:     "Foo",
+		DisplayName:    "Foo",
+		ExecutableName: "Foo",
+		Version:        "1.0.0",
+		Build:          "100",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"app_path", "bundle_id", "bundle_name", "display_name", "executable_name", "version", "build"} {
+		if _, ok := got[key]; !ok {
+			t.Fatalf("missing JSON key %q in %s", key, b)
+		}
+	}
+	if _, ok := got["BundleID"]; ok {
+		t.Fatalf("unstable Go field key leaked in JSON: %s", b)
+	}
+}
 
 const fullPlist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

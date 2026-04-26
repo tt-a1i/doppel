@@ -2,13 +2,42 @@ package verify
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tt-a1i/doppel/internal/core/macos"
 )
+
+func TestVerifyReportJSONUsesStableSnakeCase(t *testing.T) {
+	b, err := json.Marshal(VerifyReport{
+		AppPath:            "/tmp/Foo.app",
+		PlistValid:         true,
+		ExecutableResolved: true,
+		ExecutablePath:     "/tmp/Foo.app/Contents/MacOS/Foo",
+		Codesign:           &macos.VerifyResult{OK: true, Deep: true, Strict: true},
+		SPCTL:              &macos.AssessResult{Accepted: false, Output: "rejected"},
+		LaunchTest:         &LaunchTestResult{Attempted: true, Launched: true, Survived: true, SurvivedMs: 10000},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"app_path", "plist_valid", "executable_resolved", "executable_path", "codesign", "spctl", "launch_test"} {
+		if _, ok := got[key]; !ok {
+			t.Fatalf("missing JSON key %q in %s", key, b)
+		}
+	}
+	if _, ok := got["LaunchTest"]; ok {
+		t.Fatalf("unstable Go field key leaked in JSON: %s", b)
+	}
+}
 
 const testPlist = `<?xml version="1.0"?>
 <plist><dict>
@@ -101,5 +130,14 @@ func TestVerify_MissingExecutable(t *testing.T) {
 	}
 	if len(r.Errors) == 0 {
 		t.Error("expected error for missing executable")
+	}
+}
+
+func TestResolveLaunchTimeout_DefaultAllowsSlowGUIBootstrap(t *testing.T) {
+	if got := resolveLaunchTimeout(0); got != 10*time.Second {
+		t.Fatalf("default launch timeout = %s, want 10s", got)
+	}
+	if got := resolveLaunchTimeout(1500 * time.Millisecond); got != 1500*time.Millisecond {
+		t.Fatalf("explicit launch timeout = %s, want 1.5s", got)
 	}
 }

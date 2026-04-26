@@ -29,6 +29,30 @@ type StageEvent struct {
 	Message string
 }
 
+const (
+	StageCopy         = "copy"
+	StagePlist        = "plist"
+	StageEntitlements = "entitlements"
+	StageDiscover     = "discover"
+	StageResign       = "resign"
+	StageVerify       = "verify"
+	StageLaunchTest   = "launch-test"
+)
+
+type StageFailure struct {
+	Stage string
+	Err   error
+}
+
+func (e StageFailure) Error() string {
+	if e.Err == nil {
+		return e.Stage
+	}
+	return e.Stage + ": " + e.Err.Error()
+}
+
+func (e StageFailure) Unwrap() error { return e.Err }
+
 type RunResult struct {
 	Plan       *ClonePlan
 	Items      []signing.SignableItem
@@ -50,26 +74,26 @@ func Run(ctx context.Context, plan *ClonePlan, ex macos.Execer, events chan<- St
 	}
 
 	// 1. Copy
-	emit("copy", StageStart, fmt.Sprintf("%s → %s", plan.SourceApp, plan.TargetApp))
+	emit(StageCopy, StageStart, fmt.Sprintf("%s → %s", plan.SourceApp, plan.TargetApp))
 	if plan.DryRun {
-		emit("copy", StageSkip, "dry-run")
+		emit(StageCopy, StageSkip, "dry-run")
 	} else {
 		if err := CopyBundle(ctx, plan, ex); err != nil {
-			emit("copy", StageError, err.Error())
-			return result, err
+			emit(StageCopy, StageError, err.Error())
+			return result, StageFailure{Stage: StageCopy, Err: err}
 		}
-		emit("copy", StageOK, "bundle copied")
+		emit(StageCopy, StageOK, "bundle copied")
 	}
 
 	// 2. Mutate plists (identity + helpers + strip integrity keys)
-	emit("plist", StageStart, fmt.Sprintf("%s → %s", plan.BundleIDBefore, plan.BundleIDAfter))
+	emit(StagePlist, StageStart, fmt.Sprintf("%s → %s", plan.BundleIDBefore, plan.BundleIDAfter))
 	if plan.DryRun {
-		emit("plist", StageSkip, "dry-run")
+		emit(StagePlist, StageSkip, "dry-run")
 	} else {
 		stripped, err := MutatePlists(plan)
 		if err != nil {
-			emit("plist", StageError, err.Error())
-			return result, err
+			emit(StagePlist, StageError, err.Error())
+			return result, StageFailure{Stage: StagePlist, Err: err}
 		}
 		parts := []string{"identity written"}
 		if n := len(plan.HelperRewrites); n > 0 {
@@ -82,14 +106,14 @@ func Run(ctx context.Context, plan *ClonePlan, ex macos.Execer, events chan<- St
 					fmt.Sprintf("stripped %s from clone Info.plist — required for clone to launch", k))
 			}
 		}
-		emit("plist", StageOK, strings.Join(parts, " · "))
+		emit(StagePlist, StageOK, strings.Join(parts, " · "))
 	}
 
 	// 3. Entitlements (extract from source, filter for new identity)
-	emit("entitlements", StageStart, "extracting from source")
+	emit(StageEntitlements, StageStart, "extracting from source")
 	ent, changes, err := signing.ExtractAndFilterEntitlements(ctx, ex, plan.SourceApp, plan.BundleIDBefore, plan.BundleIDAfter)
 	if err != nil {
-		emit("entitlements", StageWarn, "extraction failed: "+err.Error())
+		emit(StageEntitlements, StageWarn, "extraction failed: "+err.Error())
 		result.Warnings = append(result.Warnings, "entitlements extraction failed: "+err.Error())
 	}
 	// On hardened-runtime sources, ad-hoc re-sign triggers library
@@ -104,14 +128,14 @@ func Run(ctx context.Context, plan *ClonePlan, ex macos.Execer, events chan<- St
 		changes = append(changes, "added:disable-library-validation")
 	}
 	if ent == nil {
-		emit("entitlements", StageSkip, "source has no entitlements")
+		emit(StageEntitlements, StageSkip, "source has no entitlements")
 	} else {
 		result.EntChanges = changes
-		emit("entitlements", StageOK, fmt.Sprintf("filtered (%d changes)", len(changes)))
+		emit(StageEntitlements, StageOK, fmt.Sprintf("filtered (%d changes)", len(changes)))
 	}
 
 	// 4. Discover: enumerate all signables (for reporting)
-	emit("discover", StageStart, "walking bundle")
+	emit(StageDiscover, StageStart, "walking bundle")
 	scanRoot := plan.TargetApp
 	if plan.DryRun {
 		scanRoot = plan.SourceApp
@@ -125,12 +149,12 @@ func Run(ctx context.Context, plan *ClonePlan, ex macos.Execer, events chan<- St
 	// Re-signing them ad-hoc drops the Team ID and breaks dylib loading at
 	// launch on modern macOS.
 	toSign := buildResignSet(plan, allItems)
-	emit("discover", StageOK, fmt.Sprintf("%d found · %d need re-signing", len(allItems), len(toSign)))
+	emit(StageDiscover, StageOK, fmt.Sprintf("%d found · %d need re-signing", len(allItems), len(toSign)))
 
 	// 5. Re-sign only mutated bundles
-	emit("resign", StageStart, "deepest-first, ad-hoc")
+	emit(StageResign, StageStart, "deepest-first, ad-hoc")
 	if plan.DryRun {
-		emit("resign", StageSkip, "dry-run")
+		emit(StageResign, StageSkip, "dry-run")
 	} else {
 		err := signing.DeepResign(ctx, ex, toSign, signing.ResignOptions{
 			Entitlements:  ent,
@@ -138,16 +162,16 @@ func Run(ctx context.Context, plan *ClonePlan, ex macos.Execer, events chan<- St
 			TimestampNone: true,
 		})
 		if err != nil {
-			emit("resign", StageError, err.Error())
-			return result, err
+			emit(StageResign, StageError, err.Error())
+			return result, StageFailure{Stage: StageResign, Err: err}
 		}
-		emit("resign", StageOK, fmt.Sprintf("%d item(s) signed", len(toSign)))
+		emit(StageResign, StageOK, fmt.Sprintf("%d item(s) signed", len(toSign)))
 	}
 
 	// 6. Verify
-	emit("verify", StageStart, "codesign --deep --strict")
+	emit(StageVerify, StageStart, "codesign --deep --strict")
 	if plan.DryRun {
-		emit("verify", StageSkip, "dry-run")
+		emit(StageVerify, StageSkip, "dry-run")
 	} else {
 		vr, _ := verify.Verify(ctx, plan.TargetApp, verify.VerifyOptions{
 			RunSPCTL:      true,
@@ -156,15 +180,19 @@ func Run(ctx context.Context, plan *ClonePlan, ex macos.Execer, events chan<- St
 		result.Verify = vr
 		switch {
 		case vr != nil && len(vr.Errors) > 0:
-			emit("verify", StageError, vr.Errors[0])
-			return result, fmt.Errorf("verify failed: %s", vr.Errors[0])
+			emit(StageVerify, StageError, vr.Errors[0])
+			stage := StageVerify
+			if vr.LaunchTest != nil && !vr.LaunchTest.Survived {
+				stage = StageLaunchTest
+			}
+			return result, StageFailure{Stage: stage, Err: fmt.Errorf("verify failed: %s", vr.Errors[0])}
 		case vr != nil && vr.LaunchTest != nil && vr.LaunchTest.Survived:
-			emit("verify", StageOK, fmt.Sprintf("signature valid · launch test survived %.1fs",
+			emit(StageVerify, StageOK, fmt.Sprintf("signature valid · launch test survived %.1fs",
 				float64(vr.LaunchTest.SurvivedMs)/1000))
 		case vr != nil && len(vr.Warnings) > 0:
-			emit("verify", StageWarn, vr.Warnings[0])
+			emit(StageVerify, StageWarn, vr.Warnings[0])
 		default:
-			emit("verify", StageOK, "signature valid")
+			emit(StageVerify, StageOK, "signature valid")
 		}
 	}
 

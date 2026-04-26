@@ -29,6 +29,8 @@ archives:
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - README.md
+      - README.en.md
+      - assets/doppel.png
       - docs/*.md
 
 checksum:

@@ -8,10 +8,10 @@ import (
 )
 
 type VerifyResult struct {
-	OK     bool
-	Deep   bool
-	Strict bool
-	Stderr string
+	OK     bool   `json:"ok"`
+	Deep   bool   `json:"deep"`
+	Strict bool   `json:"strict"`
+	Stderr string `json:"stderr,omitempty"`
 }
 
 func Verify(ctx context.Context, ex Execer, appPath string, deep, strict bool) (*VerifyResult, error) {

@@ -19,9 +19,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/tt-a1i/doppel/internal/core/appinfo"
 	"github.com/tt-a1i/doppel/internal/core/apperr"
+	"github.com/tt-a1i/doppel/internal/core/appinfo"
 	"github.com/tt-a1i/doppel/internal/core/clone"
+	"github.com/tt-a1i/doppel/internal/core/doctor"
 	"github.com/tt-a1i/doppel/internal/core/macos"
 )
 
@@ -72,16 +73,16 @@ var (
 
 // Text roles — use consistently.
 var (
-	tTitle    = lipgloss.NewStyle().Bold(true).Foreground(cPrimary)
-	tLabel    = lipgloss.NewStyle().Foreground(cMuted).Bold(true)
-	tCaption  = lipgloss.NewStyle().Foreground(cDim)
-	tFaint    = lipgloss.NewStyle().Foreground(cDim)
-	tKey      = lipgloss.NewStyle().Foreground(cPrimary).Bold(true)
-	tOK       = lipgloss.NewStyle().Foreground(cOK)
-	tOKBold   = lipgloss.NewStyle().Foreground(cOK).Bold(true)
-	tWarn     = lipgloss.NewStyle().Foreground(cWarn)
-	tErr      = lipgloss.NewStyle().Foreground(cErr).Bold(true)
-	tToast    = lipgloss.NewStyle().Foreground(cPrimary).Bold(true)
+	tTitle   = lipgloss.NewStyle().Bold(true).Foreground(cPrimary)
+	tLabel   = lipgloss.NewStyle().Foreground(cMuted).Bold(true)
+	tCaption = lipgloss.NewStyle().Foreground(cDim)
+	tFaint   = lipgloss.NewStyle().Foreground(cDim)
+	tKey     = lipgloss.NewStyle().Foreground(cPrimary).Bold(true)
+	tOK      = lipgloss.NewStyle().Foreground(cOK)
+	tOKBold  = lipgloss.NewStyle().Foreground(cOK).Bold(true)
+	tWarn    = lipgloss.NewStyle().Foreground(cWarn)
+	tErr     = lipgloss.NewStyle().Foreground(cErr).Bold(true)
+	tToast   = lipgloss.NewStyle().Foreground(cPrimary).Bold(true)
 )
 
 // Chrome styles.
@@ -147,8 +148,9 @@ var stageLabel = map[string]string{
 type appsLoadedMsg struct{ items []list.Item }
 type appSelectedMsg struct{ report *appinfo.InspectionReport }
 type planBuiltMsg struct {
-	plan *clone.ClonePlan
-	err  error
+	plan              *clone.ClonePlan
+	preflightFindings []doctor.Finding
+	err               error
 }
 type pipelineMsg struct {
 	event  *clone.StageEvent
@@ -192,8 +194,9 @@ type model struct {
 	pipeCh      chan pipelineMsg
 
 	// result
-	result *clone.RunResult
-	runErr error
+	result            *clone.RunResult
+	preflightFindings []doctor.Finding
+	runErr            error
 
 	// help overlay
 	showHelp bool
@@ -253,9 +256,9 @@ func (m model) Init() tea.Cmd {
 
 type itemDelegate struct{}
 
-func (itemDelegate) Height() int                               { return 2 }
-func (itemDelegate) Spacing() int                              { return 1 }
-func (itemDelegate) Update(tea.Msg, *list.Model) tea.Cmd       { return nil }
+func (itemDelegate) Height() int                         { return 2 }
+func (itemDelegate) Spacing() int                        { return 1 }
+func (itemDelegate) Update(tea.Msg, *list.Model) tea.Cmd { return nil }
 
 func (d itemDelegate) Render(w io.Writer, m list.Model, index int, li list.Item) {
 	it, ok := li.(appItem)
@@ -506,7 +509,7 @@ func buildFormInputs(report *appinfo.InspectionReport) []textinput.Model {
 	inputs[fldName] = mk(defaultCloneName(report), 64)
 	inputs[fldBundleID] = mk(defaultBundleID(report), 128)
 	inputs[fldDisplay] = mk("(defaults to Name)", 64)
-	inputs[fldTarget] = mk("(defaults to /Applications/<Name>.app)", 512)
+	inputs[fldTarget] = mk("(defaults to ~/Applications/<Name>.app)", 512)
 	return inputs
 }
 
@@ -556,6 +559,7 @@ func (m model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.plan = msg.plan
+		m.preflightFindings = msg.preflightFindings
 		m.screen = scrProgress
 		m.stages = map[string]*stageState{}
 		m.activeStage = ""
@@ -622,8 +626,30 @@ func (m model) submitForm() tea.Cmd {
 	}
 	return func() tea.Msg {
 		plan, err := clone.DerivePlan(opts)
-		return planBuiltMsg{plan: plan, err: err}
+		if err != nil {
+			return planBuiltMsg{err: err}
+		}
+		ex := macos.NewExecer()
+		findings, err := doctor.DiagnoseApp(context.Background(), ex, plan.SourceApp)
+		if err != nil {
+			return planBuiltMsg{err: err}
+		}
+		if blocking := doctor.BlockingFindings(findings); len(blocking) > 0 {
+			return planBuiltMsg{
+				preflightFindings: findings,
+				err:               fmt.Errorf("%w: preflight blocked clone: %s", apperr.ErrInvalidInput, findingCodesForTUI(blocking)),
+			}
+		}
+		return planBuiltMsg{plan: plan, preflightFindings: findings}
 	}
+}
+
+func findingCodesForTUI(findings []doctor.Finding) string {
+	codes := make([]string, 0, len(findings))
+	for _, f := range findings {
+		codes = append(codes, f.Code)
+	}
+	return strings.Join(codes, ", ")
 }
 
 func (m model) helpFor(i int) string {
@@ -635,7 +661,7 @@ func (m model) helpFor(i int) string {
 	case fldDisplay:
 		return "What shows under the icon in Finder/Dock. Optional."
 	case fldTarget:
-		return "Where to save the clone. Optional — defaults to /Applications/<Name>.app."
+		return "Where to save the clone. Optional — defaults to ~/Applications/<Name>.app."
 	}
 	return ""
 }
@@ -649,7 +675,7 @@ func (m model) previewFor(i int) string {
 			if name == "" {
 				return ""
 			}
-			v = filepath.Join("/Applications", name+".app")
+			v = filepath.Join(clone.DefaultTargetDir, name+".app")
 		}
 		return "→ " + v
 	case fldBundleID:
@@ -943,6 +969,7 @@ func (m model) updateResult(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selected = nil
 			m.plan = nil
 			m.result = nil
+			m.preflightFindings = nil
 			m.runErr = nil
 			m.stages = map[string]*stageState{}
 			m.activeStage = ""
@@ -994,6 +1021,9 @@ func (m model) resultJSON() (string, error) {
 	if m.runErr != nil {
 		payload["error"] = m.runErr.Error()
 	}
+	if len(m.preflightFindings) > 0 {
+		payload["preflight_findings"] = m.preflightFindings
+	}
 	if m.result != nil && m.result.Verify != nil {
 		payload["verify"] = m.result.Verify
 	}
@@ -1034,6 +1064,22 @@ func (m model) viewResult() string {
 		b.WriteString("\n\n")
 		b.WriteString(m.nextStepsBlock())
 		b.WriteString("\n\n")
+	}
+
+	if len(m.preflightFindings) > 0 {
+		b.WriteString(tLabel.Render("PREFLIGHT"))
+		b.WriteString("\n")
+		for _, f := range m.preflightFindings {
+			prefix := tCaption.Render("•")
+			if f.Severity == "warn" {
+				prefix = tWarn.Render("⚠")
+			}
+			if f.Severity == "error" {
+				prefix = tErr.Render("✗")
+			}
+			b.WriteString(fmt.Sprintf("%s  %s — %s\n", prefix, f.Code, f.Title))
+		}
+		b.WriteString("\n")
 	}
 
 	// Verify summary

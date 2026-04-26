@@ -13,12 +13,12 @@ import (
 )
 
 type Finding struct {
-	Code     string
-	Title    string
-	Severity string // "info" | "warn" | "error"
-	Category string
-	Evidence []string
-	Fix      string
+	Code     string   `json:"code"`
+	Title    string   `json:"title"`
+	Severity string   `json:"severity"` // "info" | "warn" | "error"
+	Category string   `json:"category"`
+	Evidence []string `json:"evidence,omitempty"`
+	Fix      string   `json:"fix,omitempty"`
 }
 
 type Input struct {
@@ -50,6 +50,16 @@ func Diagnose(in Input) []Finding {
 	for _, r := range rules {
 		if f := r(in); f != nil {
 			out = append(out, *f)
+		}
+	}
+	return out
+}
+
+func BlockingFindings(findings []Finding) []Finding {
+	var out []Finding
+	for _, f := range findings {
+		if f.Severity == "error" {
+			out = append(out, f)
 		}
 	}
 	return out

@@ -7,8 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tt-a1i/doppel/internal/core/appinfo"
 	"github.com/tt-a1i/doppel/internal/core/apperr"
+	"github.com/tt-a1i/doppel/internal/core/appinfo"
+	"github.com/tt-a1i/doppel/internal/core/clone"
 	"github.com/tt-a1i/doppel/internal/core/exitcodes"
 )
 
@@ -61,6 +62,21 @@ func Execute() int {
 }
 
 func errToExitCode(err error) int {
+	var stageErr clone.StageFailure
+	if errors.As(err, &stageErr) {
+		switch stageErr.Stage {
+		case clone.StageCopy:
+			return exitcodes.CopyFailed
+		case clone.StagePlist:
+			return exitcodes.PlistMutationFailed
+		case clone.StageResign:
+			return exitcodes.SigningFailed
+		case clone.StageLaunchTest:
+			return exitcodes.LaunchTestFailed
+		case clone.StageVerify:
+			return exitcodes.VerificationFailed
+		}
+	}
 	switch {
 	case errors.Is(err, apperr.ErrUnsupportedOS):
 		return exitcodes.UnsupportedEnvironment

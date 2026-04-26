@@ -11,25 +11,25 @@ import (
 )
 
 type VerifyReport struct {
-	AppPath            string
-	PlistValid         bool
-	ExecutableResolved bool
-	ExecutablePath     string
-	Codesign           *macos.VerifyResult
-	SPCTL              *macos.AssessResult
-	LaunchTest         *LaunchTestResult
-	Warnings           []string
-	Errors             []string
+	AppPath            string              `json:"app_path"`
+	PlistValid         bool                `json:"plist_valid"`
+	ExecutableResolved bool                `json:"executable_resolved"`
+	ExecutablePath     string              `json:"executable_path"`
+	Codesign           *macos.VerifyResult `json:"codesign,omitempty"`
+	SPCTL              *macos.AssessResult `json:"spctl,omitempty"`
+	LaunchTest         *LaunchTestResult   `json:"launch_test,omitempty"`
+	Warnings           []string            `json:"warnings,omitempty"`
+	Errors             []string            `json:"errors,omitempty"`
 }
 
 type LaunchTestResult struct {
-	Attempted       bool
-	Launched        bool
-	Survived        bool
-	SurvivedMs      int64
-	CrashSummary    string
-	CrashReportPath string
-	Note            string
+	Attempted       bool   `json:"attempted"`
+	Launched        bool   `json:"launched"`
+	Survived        bool   `json:"survived"`
+	SurvivedMs      int64  `json:"survived_ms"`
+	CrashSummary    string `json:"crash_summary,omitempty"`
+	CrashReportPath string `json:"crash_report_path,omitempty"`
+	Note            string `json:"note,omitempty"`
 }
 
 type VerifyOptions struct {
@@ -82,10 +82,7 @@ func Verify(ctx context.Context, appPath string, opts VerifyOptions, ex macos.Ex
 	}
 
 	if opts.RunLaunchTest {
-		timeout := opts.LaunchTimeout
-		if timeout <= 0 {
-			timeout = 5 * time.Second
-		}
+		timeout := resolveLaunchTimeout(opts.LaunchTimeout)
 		lt := macos.LaunchTest(ctx, ex, appPath, inspected.Identity.BundleID, timeout)
 		report.LaunchTest = &LaunchTestResult{
 			Attempted:       lt.Attempted,
@@ -111,4 +108,11 @@ func Verify(ctx context.Context, appPath string, opts VerifyOptions, ex macos.Ex
 	}
 
 	return report, nil
+}
+
+func resolveLaunchTimeout(timeout time.Duration) time.Duration {
+	if timeout <= 0 {
+		return 10 * time.Second
+	}
+	return timeout
 }

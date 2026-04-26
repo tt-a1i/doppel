@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/tt-a1i/doppel/internal/core/plistops"
@@ -14,6 +15,47 @@ func findByCode(findings []Finding, code string) *Finding {
 		}
 	}
 	return nil
+}
+
+func TestBlockingFindings_ReturnsOnlyErrorSeverity(t *testing.T) {
+	findings := []Finding{
+		{Code: "sandbox_entitled", Severity: "warn"},
+		{Code: "codesign_failed", Severity: "error"},
+		{Code: "electron_helper", Severity: "info"},
+	}
+	blocking := BlockingFindings(findings)
+	if len(blocking) != 1 {
+		t.Fatalf("blocking findings = %d, want 1", len(blocking))
+	}
+	if blocking[0].Code != "codesign_failed" {
+		t.Fatalf("blocking code = %s, want codesign_failed", blocking[0].Code)
+	}
+}
+
+func TestFindingJSONUsesStableSnakeCase(t *testing.T) {
+	b, err := json.Marshal(Finding{
+		Code:     "codesign_failed",
+		Title:    "codesign verify reports problems",
+		Severity: "error",
+		Category: "signature",
+		Evidence: []string{"bad signature"},
+		Fix:      "fix it",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"code", "title", "severity", "category", "evidence", "fix"} {
+		if _, ok := got[key]; !ok {
+			t.Fatalf("missing JSON key %q in %s", key, b)
+		}
+	}
+	if _, ok := got["Code"]; ok {
+		t.Fatalf("unstable Go field key leaked in JSON: %s", b)
+	}
 }
 
 func TestDiagnose_CleanApp(t *testing.T) {

@@ -3,8 +3,8 @@ package macos
 import "context"
 
 type AssessResult struct {
-	Accepted bool
-	Output   string
+	Accepted bool   `json:"accepted"`
+	Output   string `json:"output,omitempty"`
 }
 
 func Assess(ctx context.Context, ex Execer, appPath string) (*AssessResult, error) {

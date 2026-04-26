@@ -337,7 +337,7 @@ type SignableItem struct {
 type PlanOptions struct {
     SourceApp   string
     Name        string   // required, used to derive target path + bundle id fallbacks
-    TargetApp   string   // optional, defaults to /Applications/<Name>.app
+    TargetApp   string   // optional, defaults to ~/Applications/<Name>.app
     BundleID    string   // required
     DisplayName string   // optional, defaults to Name
     DryRun      bool
@@ -357,7 +357,7 @@ type ClonePlan struct {
 **Helper bundle ID handling:** For each helper app under `Contents/Helpers/*.app` whose original bundle ID has the source bundle ID as a **prefix** (Electron pattern: `com.foo.app.helper`), rewrite its bundle ID by substituting the prefix. Store these rewrites in the plan so Task 8 can apply them before signing.
 
 **Acceptance:**
-- Default target: `/Applications/<Name>.app` when `--target` omitted.
+- Default target: `~/Applications/<Name>.app` when `--target` omitted.
 - Refuses if target == source.
 - Refuses if target already exists (v1 — no `--force`).
 - `--dry-run` produces complete plan, touches nothing.

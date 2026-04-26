@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/spf13/cobra"
 
+	"github.com/tt-a1i/doppel/internal/core/apperr"
 	"github.com/tt-a1i/doppel/internal/core/clone"
+	"github.com/tt-a1i/doppel/internal/core/doctor"
 	"github.com/tt-a1i/doppel/internal/core/macos"
 	"github.com/tt-a1i/doppel/internal/core/verify"
 )
@@ -23,6 +26,7 @@ func newCloneCmd() *cobra.Command {
 		dryRun      bool
 		force       bool
 		launchTest  bool
+		skipDoctor  bool
 	)
 	cmd := &cobra.Command{
 		Use:   "clone <app>",
@@ -37,22 +41,24 @@ func newCloneCmd() *cobra.Command {
 				dryRun:      dryRun,
 				force:       force,
 				launchTest:  launchTest,
+				skipDoctor:  skipDoctor,
 			})
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "short name for the clone (derives target path if --target omitted)")
-	cmd.Flags().StringVar(&target, "target", "", "explicit target .app path (default /Applications/<name>.app)")
+	cmd.Flags().StringVar(&target, "target", "", "explicit target .app path (default ~/Applications/<name>.app)")
 	cmd.Flags().StringVar(&bundleID, "bundle-id", "", "new CFBundleIdentifier for the clone (required)")
 	cmd.Flags().StringVar(&displayName, "display-name", "", "CFBundleDisplayName for the clone (defaults to --name)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "derive plan and emit stages without touching disk")
 	cmd.Flags().BoolVar(&force, "force", false, "if target already exists, remove it first (path must end in .app)")
 	cmd.Flags().BoolVar(&launchTest, "launch-test", false, "briefly launch the clone after signing to confirm it survives (detects anti-tamper crashes)")
+	cmd.Flags().BoolVar(&skipDoctor, "skip-doctor", false, "skip preflight diagnostics before cloning")
 	return cmd
 }
 
 type cloneFlags struct {
-	name, target, bundleID, displayName string
-	dryRun, force, launchTest           bool
+	name, target, bundleID, displayName   string
+	dryRun, force, launchTest, skipDoctor bool
 }
 
 type stageJSON struct {
@@ -62,19 +68,20 @@ type stageJSON struct {
 }
 
 type cloneJSON struct {
-	Command          string                `json:"command"`
-	Success          bool                  `json:"success"`
-	SourceApp        string                `json:"source_app"`
-	TargetApp        string                `json:"target_app"`
-	BundleIDBefore   string                `json:"bundle_id_before"`
-	BundleIDAfter    string                `json:"bundle_id_after"`
-	DryRun           bool                  `json:"dry_run"`
-	Stages           []stageJSON           `json:"stages"`
-	HelperRewrites   []clone.HelperRewrite `json:"helper_rewrites,omitempty"`
-	EntChanges       []string              `json:"entitlement_changes,omitempty"`
-	Verify           *verify.VerifyReport  `json:"verify,omitempty"`
-	Warnings         []string              `json:"warnings,omitempty"`
-	Error            string                `json:"error,omitempty"`
+	Command           string                `json:"command"`
+	Success           bool                  `json:"success"`
+	SourceApp         string                `json:"source_app"`
+	TargetApp         string                `json:"target_app"`
+	BundleIDBefore    string                `json:"bundle_id_before"`
+	BundleIDAfter     string                `json:"bundle_id_after"`
+	DryRun            bool                  `json:"dry_run"`
+	Stages            []stageJSON           `json:"stages"`
+	HelperRewrites    []clone.HelperRewrite `json:"helper_rewrites,omitempty"`
+	EntChanges        []string              `json:"entitlement_changes,omitempty"`
+	Verify            *verify.VerifyReport  `json:"verify,omitempty"`
+	PreflightFindings []doctor.Finding      `json:"preflight_findings,omitempty"`
+	Warnings          []string              `json:"warnings,omitempty"`
+	Error             string                `json:"error,omitempty"`
 }
 
 func runClone(appPath string, f cloneFlags) error {
@@ -94,6 +101,31 @@ func runClone(appPath string, f cloneFlags) error {
 
 	ctx := context.Background()
 	ex := macos.NewExecer()
+
+	preflightFindings, preflightErr := runClonePreflight(ctx, ex, plan.SourceApp, f.skipDoctor)
+	if len(preflightFindings) > 0 && !flagJSON {
+		printPreflightFindings(preflightFindings)
+	}
+	if preflightErr != nil {
+		if flagJSON {
+			out := cloneJSON{
+				Command:           "clone",
+				Success:           false,
+				SourceApp:         plan.SourceApp,
+				TargetApp:         plan.TargetApp,
+				BundleIDBefore:    plan.BundleIDBefore,
+				BundleIDAfter:     plan.BundleIDAfter,
+				DryRun:            plan.DryRun,
+				HelperRewrites:    plan.HelperRewrites,
+				PreflightFindings: preflightFindings,
+				Error:             preflightErr.Error(),
+			}
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			_ = enc.Encode(out)
+		}
+		return preflightErr
+	}
 
 	events := make(chan clone.StageEvent, 32)
 	var wg sync.WaitGroup
@@ -119,15 +151,16 @@ func runClone(appPath string, f cloneFlags) error {
 
 	if flagJSON {
 		out := cloneJSON{
-			Command:        "clone",
-			Success:        runErr == nil,
-			SourceApp:      plan.SourceApp,
-			TargetApp:      plan.TargetApp,
-			BundleIDBefore: plan.BundleIDBefore,
-			BundleIDAfter:  plan.BundleIDAfter,
-			DryRun:         plan.DryRun,
-			Stages:         collected,
-			HelperRewrites: plan.HelperRewrites,
+			Command:           "clone",
+			Success:           runErr == nil,
+			SourceApp:         plan.SourceApp,
+			TargetApp:         plan.TargetApp,
+			BundleIDBefore:    plan.BundleIDBefore,
+			BundleIDAfter:     plan.BundleIDAfter,
+			DryRun:            plan.DryRun,
+			Stages:            collected,
+			HelperRewrites:    plan.HelperRewrites,
+			PreflightFindings: preflightFindings,
 		}
 		if result != nil {
 			out.EntChanges = result.EntChanges
@@ -165,6 +198,37 @@ func runClone(appPath string, f cloneFlags) error {
 		}
 	}
 	return nil
+}
+
+func runClonePreflight(ctx context.Context, ex macos.Execer, appPath string, skip bool) ([]doctor.Finding, error) {
+	if skip {
+		return nil, nil
+	}
+	findings, err := doctor.DiagnoseApp(ctx, ex, appPath)
+	if err != nil {
+		return nil, err
+	}
+	blocking := doctor.BlockingFindings(findings)
+	if len(blocking) == 0 {
+		return findings, nil
+	}
+	return findings, fmt.Errorf("%w: preflight blocked clone: %s", apperr.ErrInvalidInput, findingCodes(blocking))
+}
+
+func printPreflightFindings(findings []doctor.Finding) {
+	fmt.Println("Preflight:")
+	for _, f := range findings {
+		fmt.Printf("  [%s] %s — %s\n", f.Severity, f.Code, f.Title)
+	}
+	fmt.Println()
+}
+
+func findingCodes(findings []doctor.Finding) string {
+	codes := make([]string, 0, len(findings))
+	for _, f := range findings {
+		codes = append(codes, f.Code)
+	}
+	return strings.Join(codes, ", ")
 }
 
 func printStage(ev clone.StageEvent) {
