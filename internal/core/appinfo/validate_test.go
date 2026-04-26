@@ -102,3 +102,32 @@ func TestValidateAppPath(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateBundleID(t *testing.T) {
+	tests := []struct {
+		id     string
+		wantOK bool
+	}{
+		{id: "com.example.app", wantOK: true},
+		{id: "com.example.my-app2", wantOK: true},
+		{id: "", wantOK: false},
+		{id: "com..example", wantOK: false},
+		{id: ".com.example", wantOK: false},
+		{id: "com.example.", wantOK: false},
+		{id: "com.-example.app", wantOK: false},
+		{id: "com.example_.app", wantOK: false},
+		{id: "com.example.中文", wantOK: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.id, func(t *testing.T) {
+			err := ValidateBundleID(tc.id)
+			if tc.wantOK && err != nil {
+				t.Fatalf("expected valid bundle ID, got %v", err)
+			}
+			if !tc.wantOK && !errors.Is(err, apperr.ErrInvalidInput) {
+				t.Fatalf("expected invalid input, got %v", err)
+			}
+		})
+	}
+}

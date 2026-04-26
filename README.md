@@ -57,17 +57,18 @@ make install       # 拷到 $GOPATH/bin（可选）
 # 1. 先诊断兼容性
 doppel doctor /Applications/cmux.app
 
-# 2. 试跑，确认目标路径和 bundle ID
-doppel clone /Applications/cmux.app --name cmux2 --bundle-id com.example.cmux2 --dry-run
+# 2. 试跑，确认目标路径和自动生成的 bundle ID
+doppel clone /Applications/cmux.app --name cmux2 --dry-run
 
 # 3. 真实克隆，并做启动存活测试
 doppel clone /Applications/cmux.app \
   --name cmux2 \
-  --bundle-id com.example.cmux2 \
   --launch-test
 ```
 
 `clone` 默认写入 `~/Applications/<Name>.app`，避免普通用户碰到 `/Applications` 权限问题。也可以通过 `--target /Applications/cmux2.app` 显式指定系统 Applications 目录。
+
+`--bundle-id` 可以省略。省略时 doppel 会根据源 app 的 bundle ID 和 `--name` 自动生成一个新 ID；需要固定身份时再手动传 `--bundle-id com.example.cmux2`。
 
 `clone` 默认会先跑一次 preflight。若发现 error 级问题（例如源 app 自身 `codesign --strict` 不通过），会在写入磁盘前停止。只有你明确知道风险时才使用 `--skip-doctor`。
 
@@ -77,7 +78,7 @@ doppel clone /Applications/cmux.app \
 doppel
 ```
 
-启动全屏 picker，扫描 `/Applications`、`/Applications/Utilities`、`~/Applications`。挑一个 app，填入新名字和 bundle ID，实时观察克隆流水线。
+启动全屏 picker，扫描 `/Applications`、`/Applications/Utilities`、`~/Applications`。挑一个 app，填入新名字；bundle ID 会自动生成，也可以手动覆盖。TUI 默认会在签名后做一次短启动测试。
 
 ### CLI
 
@@ -91,16 +92,18 @@ doppel inspect /Applications/cmux.app
 doppel inspect /Applications/cmux.app --json
 
 # 试跑（只推演计划，不动任何文件）
-doppel clone /Applications/cmux.app --name cmux2 --bundle-id com.example.cmux2 --dry-run
+doppel clone /Applications/cmux.app --name cmux2 --dry-run
 
 # 真实克隆
 doppel clone /Applications/cmux.app \
   --name cmux2 \
-  --bundle-id com.example.cmux2 \
   --launch-test
 
+# 需要固定身份时，手动指定 bundle ID
+doppel clone /Applications/cmux.app --name cmux2 --bundle-id com.example.cmux2 --dry-run
+
 # 覆盖已存在的 .app 目标（先删后建；目标必须以 .app 结尾）
-doppel clone /Applications/cmux.app --name cmux2 --bundle-id com.example.cmux2 --force
+doppel clone /Applications/cmux.app --name cmux2 --force
 
 doppel verify ~/Applications/cmux2.app
 doppel doctor /Applications/cmux.app

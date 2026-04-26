@@ -57,17 +57,18 @@ For ordinary users, use this flow:
 # 1. Diagnose compatibility first
 doppel doctor /Applications/cmux.app
 
-# 2. Dry-run to confirm target path and bundle ID
-doppel clone /Applications/cmux.app --name cmux2 --bundle-id com.example.cmux2 --dry-run
+# 2. Dry-run to confirm target path and generated bundle ID
+doppel clone /Applications/cmux.app --name cmux2 --dry-run
 
 # 3. Clone for real and verify launch survival
 doppel clone /Applications/cmux.app \
   --name cmux2 \
-  --bundle-id com.example.cmux2 \
   --launch-test
 ```
 
 `clone` writes to `~/Applications/<Name>.app` by default so ordinary users do not need permission to write into `/Applications`. Use `--target /Applications/cmux2.app` when you explicitly want the system Applications folder.
+
+`--bundle-id` is optional. When omitted, doppel generates a new ID from the source app's bundle ID and `--name`; pass `--bundle-id com.example.cmux2` only when you need a fixed identity.
 
 `clone` runs preflight diagnostics by default. If it finds an error-level issue, such as a source app that already fails `codesign --strict`, it stops before writing to disk. Use `--skip-doctor` only when you understand the risk.
 
@@ -77,7 +78,7 @@ doppel clone /Applications/cmux.app \
 doppel
 ```
 
-Launches a full-screen picker that scans `/Applications`, `/Applications/Utilities`, and `~/Applications`. Pick an app, fill in the new name / bundle ID, watch the clone pipeline run.
+Launches a full-screen picker that scans `/Applications`, `/Applications/Utilities`, and `~/Applications`. Pick an app and enter a new name; the bundle ID is generated automatically and can still be overridden. The TUI runs a short launch test after signing by default.
 
 ### CLI
 
@@ -91,16 +92,18 @@ doppel inspect /Applications/cmux.app
 doppel inspect /Applications/cmux.app --json
 
 # Dry-run (derive plan, touch nothing)
-doppel clone /Applications/cmux.app --name cmux2 --bundle-id com.example.cmux2 --dry-run
+doppel clone /Applications/cmux.app --name cmux2 --dry-run
 
 # Real clone
 doppel clone /Applications/cmux.app \
   --name cmux2 \
-  --bundle-id com.example.cmux2 \
   --launch-test
 
+# Manually pin the bundle ID when you need a fixed identity
+doppel clone /Applications/cmux.app --name cmux2 --bundle-id com.example.cmux2 --dry-run
+
 # Re-clone over an existing target (deletes target first; target must end in .app)
-doppel clone /Applications/cmux.app --name cmux2 --bundle-id com.example.cmux2 --force
+doppel clone /Applications/cmux.app --name cmux2 --force
 
 doppel verify ~/Applications/cmux2.app
 doppel doctor /Applications/cmux.app

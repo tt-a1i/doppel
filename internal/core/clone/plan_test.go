@@ -54,7 +54,7 @@ func withHelperAt(t *testing.T, root, helperName, helperBundleID string) {
 	}
 }
 
-func TestDerivePlan_RequiresNameAndBundleID(t *testing.T) {
+func TestDerivePlan_RequiresNameAndDefaultsBundleID(t *testing.T) {
 	src := mkSourceBundle(t, "com.example.app")
 	target := filepath.Join(t.TempDir(), "dst.app")
 
@@ -62,9 +62,39 @@ func TestDerivePlan_RequiresNameAndBundleID(t *testing.T) {
 	if !errors.Is(err, apperr.ErrInvalidInput) {
 		t.Errorf("missing Name should be invalid input, got %v", err)
 	}
-	_, err = DerivePlan(PlanOptions{SourceApp: src, TargetApp: target, Name: "x"})
+	plan, err := DerivePlan(PlanOptions{SourceApp: src, TargetApp: target, Name: "My Clone"})
+	if err != nil {
+		t.Fatalf("missing BundleID should derive a default, got %v", err)
+	}
+	if plan.BundleIDAfter != "com.example.app.my-clone" {
+		t.Errorf("BundleIDAfter = %q, want com.example.app.my-clone", plan.BundleIDAfter)
+	}
+}
+
+func TestDerivePlan_RejectsInvalidBundleID(t *testing.T) {
+	src := mkSourceBundle(t, "com.example.app")
+	target := filepath.Join(t.TempDir(), "dst.app")
+
+	_, err := DerivePlan(PlanOptions{SourceApp: src, TargetApp: target, Name: "x", BundleID: "com..bad"})
 	if !errors.Is(err, apperr.ErrInvalidInput) {
-		t.Errorf("missing BundleID should be invalid input, got %v", err)
+		t.Fatalf("invalid BundleID should be invalid input, got %v", err)
+	}
+}
+
+func TestDerivePlan_RejectsSourceBundleIDReuse(t *testing.T) {
+	src := mkSourceBundle(t, "com.example.app")
+	target := filepath.Join(t.TempDir(), "dst.app")
+
+	_, err := DerivePlan(PlanOptions{SourceApp: src, TargetApp: target, Name: "x", BundleID: "com.example.app"})
+	if !errors.Is(err, apperr.ErrInvalidInput) {
+		t.Fatalf("source BundleID reuse should be invalid input, got %v", err)
+	}
+}
+
+func TestDefaultBundleIDSanitizesCloneName(t *testing.T) {
+	got := DefaultBundleID("com.example.app", "My Clone_2!")
+	if got != "com.example.app.my-clone-2" {
+		t.Fatalf("DefaultBundleID = %q, want com.example.app.my-clone-2", got)
 	}
 }
 
@@ -167,6 +197,21 @@ func TestDerivePlan_DisplayNameDefaultsToName(t *testing.T) {
 	}
 	if plan.DisplayNameAfter != "MyClone" {
 		t.Errorf("DisplayNameAfter = %q, want MyClone", plan.DisplayNameAfter)
+	}
+}
+
+func TestDerivePlan_TrimsDisplayName(t *testing.T) {
+	src := mkSourceBundle(t, "com.example.app")
+	target := filepath.Join(t.TempDir(), "dst.app")
+
+	plan, err := DerivePlan(PlanOptions{
+		SourceApp: src, TargetApp: target, Name: "MyClone", BundleID: "com.x.y", DisplayName: "  Shown Name  ",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.DisplayNameAfter != "Shown Name" {
+		t.Errorf("DisplayNameAfter = %q, want Shown Name", plan.DisplayNameAfter)
 	}
 }
 

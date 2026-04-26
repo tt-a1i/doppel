@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"unicode"
 
 	"github.com/tt-a1i/doppel/internal/core/apperr"
 )
@@ -36,6 +37,27 @@ func ValidateAppPath(path string) error {
 	pinfo, err := os.Stat(plist)
 	if err != nil || pinfo.IsDir() {
 		return fmt.Errorf("%w: missing Contents/Info.plist under %s", apperr.ErrNotAnApp, path)
+	}
+	return nil
+}
+
+func ValidateBundleID(id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return fmt.Errorf("%w: bundle ID is required", apperr.ErrInvalidInput)
+	}
+	for _, part := range strings.Split(id, ".") {
+		if part == "" {
+			return fmt.Errorf("%w: bundle ID contains an empty component: %s", apperr.ErrInvalidInput, id)
+		}
+		if strings.HasPrefix(part, "-") || strings.HasSuffix(part, "-") {
+			return fmt.Errorf("%w: bundle ID components cannot start or end with '-': %s", apperr.ErrInvalidInput, id)
+		}
+		for _, r := range part {
+			if r > unicode.MaxASCII || !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-') {
+				return fmt.Errorf("%w: bundle ID contains unsupported character %q: %s", apperr.ErrInvalidInput, r, id)
+			}
+		}
 	}
 	return nil
 }

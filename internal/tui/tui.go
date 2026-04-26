@@ -8,7 +8,6 @@ import (
 	"io"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -185,6 +184,7 @@ type model struct {
 	formIdx       int
 	formErr       string
 	formErrDetail string
+	launchTest    bool
 
 	// progress
 	plan        *clone.ClonePlan
@@ -205,8 +205,6 @@ type model struct {
 	toast   string
 	toastAt time.Time
 }
-
-var bundleIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.\-]*[A-Za-z0-9]$`)
 
 // ——— Entry ———————————————————————————————————————————————————————————
 
@@ -245,6 +243,7 @@ func initialModel() model {
 		progSpin:    progSpin,
 		list:        l,
 		stages:      map[string]*stageState{},
+		launchTest:  true,
 	}
 }
 
@@ -525,10 +524,7 @@ func defaultCloneName(r *appinfo.InspectionReport) string {
 }
 
 func defaultBundleID(r *appinfo.InspectionReport) string {
-	if r.Identity.BundleID == "" {
-		return "com.example.clone"
-	}
-	return r.Identity.BundleID + "2"
+	return clone.DefaultBundleID(r.Identity.BundleID, defaultCloneName(r))
 }
 
 func (m model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -552,6 +548,9 @@ func (m model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.trySubmit()
 		case "ctrl+s":
 			return m, m.trySubmit()
+		case "ctrl+l":
+			m.launchTest = !m.launchTest
+			return m, nil
 		}
 	case planBuiltMsg:
 		if msg.err != nil {
@@ -607,10 +606,10 @@ func (m model) validateForm() error {
 	if bid == "" {
 		return fmt.Errorf("%w: Bundle ID is required", apperr.ErrInvalidInput)
 	}
-	if !bundleIDPattern.MatchString(bid) {
-		return fmt.Errorf("%w: Bundle ID must look like com.example.app (letters, numbers, dots, dashes)", apperr.ErrInvalidInput)
+	if err := appinfo.ValidateBundleID(bid); err != nil {
+		return err
 	}
-	if bid == m.selected.Identity.BundleID {
+	if bid == strings.TrimSpace(m.selected.Identity.BundleID) {
 		return fmt.Errorf("%w: Bundle ID must differ from the source (%s)", apperr.ErrInvalidInput, bid)
 	}
 	return nil
@@ -623,6 +622,7 @@ func (m model) submitForm() tea.Cmd {
 		BundleID:    valueOrPlaceholder(m.inputs[fldBundleID]),
 		DisplayName: strings.TrimSpace(m.inputs[fldDisplay].Value()),
 		TargetApp:   strings.TrimSpace(m.inputs[fldTarget].Value()),
+		LaunchTest:  m.launchTest,
 	}
 	return func() tea.Msg {
 		plan, err := clone.DerivePlan(opts)
@@ -737,6 +737,20 @@ func (m model) viewForm() string {
 			b.WriteString("\n")
 		}
 	}
+
+	b.WriteString("\n")
+	b.WriteString(tLabel.Render("LAUNCH TEST"))
+	b.WriteString("\n")
+	if m.launchTest {
+		b.WriteString(tOK.Render("ON"))
+		b.WriteString(tCaption.Render("  opens the clone briefly after signing and fails if it exits early"))
+	} else {
+		b.WriteString(tWarn.Render("OFF"))
+		b.WriteString(tCaption.Render("  skips the startup check; faster but less reliable"))
+	}
+	b.WriteString("\n")
+	b.WriteString(tCaption.Render("Press Ctrl+L to toggle."))
+	b.WriteString("\n")
 
 	if m.formErr != "" {
 		b.WriteString("\n")
@@ -979,17 +993,20 @@ func (m model) updateResult(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "o":
 			if m.plan != nil && m.runErr == nil && !m.plan.DryRun {
 				_ = exec.Command("open", m.plan.TargetApp).Start()
-				return m.setToast("launched clone"), clearToastCmd()
+				m = m.setToast("launched clone")
+				return m, clearToastCmd(m.toastAt)
 			}
 		case "f":
 			if m.plan != nil && !m.plan.DryRun {
 				_ = exec.Command("open", "-R", m.plan.TargetApp).Start()
-				return m.setToast("revealed in Finder"), clearToastCmd()
+				m = m.setToast("revealed in Finder")
+				return m, clearToastCmd(m.toastAt)
 			}
 		case "c":
 			if data, err := m.resultJSON(); err == nil {
 				if err := clipboard.WriteAll(data); err == nil {
-					return m.setToast("copied JSON to clipboard"), clearToastCmd()
+					m = m.setToast("copied JSON to clipboard")
+					return m, clearToastCmd(m.toastAt)
 				}
 			}
 		}
@@ -1003,8 +1020,7 @@ func (m model) setToast(text string) model {
 	return m
 }
 
-func clearToastCmd() tea.Cmd {
-	at := time.Now()
+func clearToastCmd(at time.Time) tea.Cmd {
 	return tea.Tick(2*time.Second, func(_ time.Time) tea.Msg {
 		return toastClearMsg(at)
 	})
@@ -1101,6 +1117,23 @@ func (m model) viewResult() string {
 				b.WriteString(tCaption.Render("   Right-click the app → Open the first time. This is expected for locally-signed clones.\n"))
 			}
 		}
+		if lt := m.result.Verify.LaunchTest; lt != nil {
+			if lt.Survived {
+				b.WriteString(tOK.Render("✓") + fmt.Sprintf("  Launch test survived %.1fs\n", float64(lt.SurvivedMs)/1000))
+			} else if lt.Launched {
+				b.WriteString(tErr.Render("✗") + "  Launch test exited early\n")
+				if lt.CrashSummary != "" {
+					b.WriteString(tCaption.Render("   " + lt.CrashSummary + "\n"))
+				} else if lt.Note != "" {
+					b.WriteString(tCaption.Render("   " + lt.Note + "\n"))
+				}
+			} else {
+				b.WriteString(tWarn.Render("⚠") + "  Launch test could not start the app\n")
+				if lt.Note != "" {
+					b.WriteString(tCaption.Render("   " + lt.Note + "\n"))
+				}
+			}
+		}
 	}
 
 	return cardStyle.Width(m.cardWidth()).Render(b.String())
@@ -1166,7 +1199,7 @@ func (m model) hintsFor(s screen) string {
 		}
 		return "enter pick   / filter   ↑↓ move   ? help   q quit"
 	case scrForm:
-		return "tab next   shift+tab prev   enter confirm   ctrl+s start   esc back"
+		return "tab next   shift+tab prev   ctrl+l launch test   ctrl+s start   esc back"
 	case scrProgress:
 		return "working …   ctrl+c abort"
 	case scrResult:
@@ -1210,6 +1243,7 @@ func (m model) viewHelp() string {
 	b.WriteString(tCaption.Render(
 		"•  Clones are locally signed. Gatekeeper will prompt on first launch.\n" +
 			"•  Sandboxed apps start with empty containers (no synced data).\n" +
+			"•  Launch test briefly opens the clone after signing.\n" +
 			"•  Auto-updaters (Sparkle, etc.) usually don't work on clones.",
 	))
 	b.WriteString("\n\n")
@@ -1245,6 +1279,9 @@ func humanizeErr(err error) (headline, detail string) {
 		return "The path isn't a valid .app bundle.", raw
 	case errors.Is(err, apperr.ErrInvalidInput):
 		return "Some input isn't valid.", raw
+	case isLaunchTestFailure(err):
+		return "The clone was created but failed the startup test.",
+			"The app launched and then exited early. This usually means the app has its own integrity check or startup guard. The copy is still on disk, but it is not reliable for normal use.\n\n" + raw
 	case strings.Contains(raw, "Permission denied"), strings.Contains(raw, "permission denied"):
 		return "Permission denied while writing the clone.",
 			"macOS restricts writing to /Applications for some folders. Try a Target under ~/Applications/ instead.\n\n" + raw
@@ -1263,6 +1300,14 @@ func humanizeErr(err error) (headline, detail string) {
 	default:
 		return "Something went wrong.", raw
 	}
+}
+
+func isLaunchTestFailure(err error) bool {
+	var stageErr clone.StageFailure
+	if errors.As(err, &stageErr) && stageErr.Stage == clone.StageLaunchTest {
+		return true
+	}
+	return strings.Contains(err.Error(), "launch test:")
 }
 
 // ——— Root View ————————————————————————————————————————————————————————

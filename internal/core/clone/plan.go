@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/tt-a1i/doppel/internal/core/apperr"
 	"github.com/tt-a1i/doppel/internal/core/appinfo"
@@ -64,11 +65,9 @@ func DerivePlan(opts PlanOptions) (*ClonePlan, error) {
 	if opts.SourceApp == "" {
 		return nil, fmt.Errorf("%w: source app path is required", apperr.ErrInvalidInput)
 	}
-	if opts.Name == "" {
+	name := strings.TrimSpace(opts.Name)
+	if name == "" {
 		return nil, fmt.Errorf("%w: --name is required", apperr.ErrInvalidInput)
-	}
-	if opts.BundleID == "" {
-		return nil, fmt.Errorf("%w: --bundle-id is required", apperr.ErrInvalidInput)
 	}
 	if err := appinfo.ValidateAppPath(opts.SourceApp); err != nil {
 		return nil, err
@@ -79,9 +78,20 @@ func DerivePlan(opts PlanOptions) (*ClonePlan, error) {
 		return nil, err
 	}
 
-	target := opts.TargetApp
+	bundleID := strings.TrimSpace(opts.BundleID)
+	if bundleID == "" {
+		bundleID = DefaultBundleID(report.Identity.BundleID, name)
+	}
+	if err := appinfo.ValidateBundleID(bundleID); err != nil {
+		return nil, err
+	}
+	if bundleID == report.Identity.BundleID {
+		return nil, fmt.Errorf("%w: bundle ID must differ from source: %s", apperr.ErrInvalidInput, bundleID)
+	}
+
+	target := strings.TrimSpace(opts.TargetApp)
 	if target == "" {
-		target = filepath.Join(DefaultTargetDir, opts.Name+".app")
+		target = filepath.Join(DefaultTargetDir, name+".app")
 	}
 
 	src, err := filepath.Abs(opts.SourceApp)
@@ -107,24 +117,55 @@ func DerivePlan(opts PlanOptions) (*ClonePlan, error) {
 		}
 	}
 
-	displayName := opts.DisplayName
+	displayName := strings.TrimSpace(opts.DisplayName)
 	if displayName == "" {
-		displayName = opts.Name
+		displayName = name
 	}
 
 	plan := &ClonePlan{
 		SourceApp:        src,
 		TargetApp:        dst,
 		BundleIDBefore:   report.Identity.BundleID,
-		BundleIDAfter:    opts.BundleID,
-		NameAfter:        opts.Name,
+		BundleIDAfter:    bundleID,
+		NameAfter:        name,
 		DisplayNameAfter: displayName,
 		DryRun:           opts.DryRun,
 		Force:            opts.Force,
 		LaunchTest:       opts.LaunchTest,
-		HelperRewrites:   computeHelperRewrites(src, report.Identity.BundleID, opts.BundleID),
+		HelperRewrites:   computeHelperRewrites(src, report.Identity.BundleID, bundleID),
 	}
 	return plan, nil
+}
+
+func DefaultBundleID(sourceBundleID, cloneName string) string {
+	suffix := bundleIDComponent(cloneName)
+	if suffix == "" {
+		suffix = "clone"
+	}
+	sourceBundleID = strings.TrimSpace(sourceBundleID)
+	if sourceBundleID == "" || appinfo.ValidateBundleID(sourceBundleID) != nil {
+		return "com.example." + suffix
+	}
+	return sourceBundleID + "." + suffix
+}
+
+func bundleIDComponent(s string) string {
+	s = strings.TrimSpace(strings.ToLower(s))
+	var b strings.Builder
+	lastDash := false
+	for _, r := range s {
+		switch {
+		case r <= unicode.MaxASCII && (unicode.IsLetter(r) || unicode.IsDigit(r)):
+			b.WriteRune(r)
+			lastDash = false
+		case r == '-' || r == '_' || unicode.IsSpace(r) || r == '.':
+			if b.Len() > 0 && !lastDash {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }
 
 // checkForceTarget refuses to --force-delete paths that don't look like an

@@ -47,7 +47,7 @@ func newCloneCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&name, "name", "", "short name for the clone (derives target path if --target omitted)")
 	cmd.Flags().StringVar(&target, "target", "", "explicit target .app path (default ~/Applications/<name>.app)")
-	cmd.Flags().StringVar(&bundleID, "bundle-id", "", "new CFBundleIdentifier for the clone (required)")
+	cmd.Flags().StringVar(&bundleID, "bundle-id", "", "new CFBundleIdentifier for the clone (default: source bundle ID + clone name)")
 	cmd.Flags().StringVar(&displayName, "display-name", "", "CFBundleDisplayName for the clone (defaults to --name)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "derive plan and emit stages without touching disk")
 	cmd.Flags().BoolVar(&force, "force", false, "if target already exists, remove it first (path must end in .app)")
