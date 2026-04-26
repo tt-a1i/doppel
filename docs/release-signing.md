@@ -56,16 +56,20 @@ Run this on a macOS machine with the certificate installed:
 
 ```bash
 make build
-codesign --force --options runtime --timestamp \
-  --sign "$MACOS_CODESIGN_IDENTITY" ./doppel
-codesign --verify --strict --verbose=2 ./doppel
-ditto -c -k --keepParent ./doppel doppel-notary.zip
-xcrun notarytool submit doppel-notary.zip \
-  --key "$MACOS_NOTARY_KEY_PATH" \
-  --key-id "$MACOS_NOTARY_KEY_ID" \
-  --issuer "$MACOS_NOTARY_ISSUER_ID" \
-  --wait
-spctl --assess --type execute --verbose ./doppel
+MACOS_CODESIGN_IDENTITY="Developer ID Application: Name (TEAMID)" \
+MACOS_NOTARY_KEY_PATH=/path/to/AuthKey_XXXX.p8 \
+MACOS_NOTARY_KEY_ID=XXXX \
+MACOS_NOTARY_ISSUER_ID=YYYY \
+scripts/sign-notarize-binary.sh ./doppel ./doppel-notary.zip
+```
+
+If you store notarytool credentials in the keychain, use
+`MACOS_NOTARY_PROFILE` instead of the API-key variables:
+
+```bash
+MACOS_CODESIGN_IDENTITY="Developer ID Application: Name (TEAMID)" \
+MACOS_NOTARY_PROFILE=doppel-notary \
+scripts/sign-notarize-binary.sh ./doppel ./doppel-notary.zip
 ```
 
 For GitHub Releases and Homebrew, this manual path should be replaced by a

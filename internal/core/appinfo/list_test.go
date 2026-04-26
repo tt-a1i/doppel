@@ -44,6 +44,40 @@ func TestListInstalled_SkipsUnreadableAndNonApp(t *testing.T) {
 	}
 }
 
+func TestScanInstalled_ReportsSkippedApps(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "Broken.app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := ScanInstalled([]string{dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Reports) != 0 {
+		t.Fatalf("expected no reports, got %d", len(result.Reports))
+	}
+	if len(result.Skipped) != 1 {
+		t.Fatalf("expected one skipped app, got %+v", result.Skipped)
+	}
+	if result.Skipped[0].Path != filepath.Join(dir, "Broken.app") {
+		t.Fatalf("skipped path = %q", result.Skipped[0].Path)
+	}
+	if result.Skipped[0].Reason == "" {
+		t.Fatal("skipped reason should be user-visible")
+	}
+}
+
+func TestScanInstalled_IgnoresMissingScanDirectory(t *testing.T) {
+	result, err := ScanInstalled([]string{filepath.Join(t.TempDir(), "missing")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Skipped) != 0 {
+		t.Fatalf("missing scan directory should not be user-visible skip noise: %+v", result.Skipped)
+	}
+}
+
 func TestListInstalled_DedupAcrossDirs(t *testing.T) {
 	dir := t.TempDir()
 	good := filepath.Join(dir, "Good.app")

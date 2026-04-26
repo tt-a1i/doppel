@@ -72,13 +72,15 @@ doppel clone /Applications/cmux.app \
 
 `clone` 默认会先跑一次 preflight。若发现 error 级问题（例如源 app 自身 `codesign --strict` 不通过），会在写入磁盘前停止。只有你明确知道风险时才使用 `--skip-doctor`。
 
+`doctor` 会输出一个兼容性结论：`ready`、`caution` 或 `blocked`。普通用户只需要看这行结论；需要排障时再看后面的 finding 详情。
+
 ### 交互式（TUI）
 
 ```bash
 doppel
 ```
 
-启动全屏 picker，扫描 `/Applications`、`/Applications/Utilities`、`~/Applications`。挑一个 app，填入新名字；bundle ID 会自动生成，也可以手动覆盖。TUI 默认会在签名后做一次短启动测试。
+启动全屏 picker，扫描 `/Applications`、`/Applications/Utilities`、`~/Applications`。挑一个 app，填入新名字；bundle ID 会自动生成，也可以手动覆盖。TUI 默认会在签名后做一次短启动测试。若目标 app 不在列表里，按 `p` 手动输入 `.app` 路径。
 
 ### CLI
 

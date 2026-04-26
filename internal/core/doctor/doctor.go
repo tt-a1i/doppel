@@ -21,6 +21,15 @@ type Finding struct {
 	Fix      string   `json:"fix,omitempty"`
 }
 
+type CompatibilitySummary struct {
+	Level          string `json:"level"` // "ready" | "caution" | "blocked"
+	Title          string `json:"title"`
+	Recommendation string `json:"recommendation"`
+	ErrorCount     int    `json:"error_count"`
+	WarningCount   int    `json:"warning_count"`
+	InfoCount      int    `json:"info_count"`
+}
+
 type Input struct {
 	AppPath         string
 	Identity        appinfo.AppIdentity
@@ -63,6 +72,36 @@ func BlockingFindings(findings []Finding) []Finding {
 		}
 	}
 	return out
+}
+
+func SummarizeCompatibility(findings []Finding) CompatibilitySummary {
+	var s CompatibilitySummary
+	for _, f := range findings {
+		switch f.Severity {
+		case "error":
+			s.ErrorCount++
+		case "warn":
+			s.WarningCount++
+		case "info":
+			s.InfoCount++
+		}
+	}
+
+	switch {
+	case s.ErrorCount > 0:
+		s.Level = "blocked"
+		s.Title = "Not recommended to clone yet"
+		s.Recommendation = "Fix the error-level findings first. doppel will block clone by default because the result is unlikely to launch reliably."
+	case s.WarningCount > 0:
+		s.Level = "caution"
+		s.Title = "Cloneable with caveats"
+		s.Recommendation = "The clone can proceed, but review the warnings and keep launch testing enabled before relying on the copy."
+	default:
+		s.Level = "ready"
+		s.Title = "Likely clone-friendly"
+		s.Recommendation = "No blocking or warning findings were detected. Run clone with launch testing for final confirmation."
+	}
+	return s
 }
 
 // DiagnoseApp is a convenience wrapper that gathers Input from live tools

@@ -72,13 +72,15 @@ doppel clone /Applications/cmux.app \
 
 `clone` runs preflight diagnostics by default. If it finds an error-level issue, such as a source app that already fails `codesign --strict`, it stops before writing to disk. Use `--skip-doctor` only when you understand the risk.
 
+`doctor` prints a compatibility summary: `ready`, `caution`, or `blocked`. Ordinary users can start with that single line and only read the detailed findings when they need to troubleshoot.
+
 ### Interactive (TUI)
 
 ```bash
 doppel
 ```
 
-Launches a full-screen picker that scans `/Applications`, `/Applications/Utilities`, and `~/Applications`. Pick an app and enter a new name; the bundle ID is generated automatically and can still be overridden. The TUI runs a short launch test after signing by default.
+Launches a full-screen picker that scans `/Applications`, `/Applications/Utilities`, and `~/Applications`. Pick an app and enter a new name; the bundle ID is generated automatically and can still be overridden. The TUI runs a short launch test after signing by default. If the target app is not listed, press `p` and enter the `.app` path manually.
 
 ### CLI
 

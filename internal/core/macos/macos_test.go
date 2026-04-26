@@ -128,3 +128,18 @@ func TestCopy_Success(t *testing.T) {
 		t.Errorf("args = %v, want %v", ex.Calls[0].Args, wantArgs)
 	}
 }
+
+func TestFindPIDsByAppPathFindsMainAndHelpers(t *testing.T) {
+	ex := &FakeExecer{Default: FakeResponse{Stdout: []byte(`
+  111 /Applications/Source.app/Contents/MacOS/Source
+  222 /tmp/DoppelClone.app/Contents/MacOS/DoppelClone
+  333 /tmp/DoppelClone.app/Contents/Frameworks/Doppel Helper.app/Contents/MacOS/Doppel Helper
+  444 /usr/bin/other
+`)}}
+
+	got := findPIDsByAppPath(context.Background(), ex, "/tmp/DoppelClone.app")
+	want := []int{222, 333}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("pids = %v, want %v", got, want)
+	}
+}

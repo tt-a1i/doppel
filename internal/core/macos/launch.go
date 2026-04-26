@@ -116,11 +116,7 @@ func LaunchTest(ctx context.Context, ex Execer, appPath, bundleID string, timeou
 	// Still alive — kill it cleanly.
 	r.Survived = true
 	r.SurvivedMs = time.Since(start).Milliseconds()
-	_ = syscall.Kill(pid, syscall.SIGTERM)
-	time.Sleep(400 * time.Millisecond)
-	if processAlive(pid) {
-		_ = syscall.Kill(pid, syscall.SIGKILL)
-	}
+	cleanupLaunchProcesses(ctx, ex, appPath, bundleID, pid)
 	return r
 }
 
@@ -156,6 +152,62 @@ func findPIDByBundleID(ctx context.Context, ex Execer, bundleID string) int {
 		return pid
 	}
 	return 0
+}
+
+func findPIDsByAppPath(ctx context.Context, ex Execer, appPath string) []int {
+	stdout, _, _, _ := ex.Run(ctx, "ps", "-axo", "pid=,command=")
+	prefix := filepath.Clean(appPath) + "/"
+	var pids []int
+	seen := map[int]bool{}
+	for _, line := range strings.Split(string(stdout), "\n") {
+		if !strings.Contains(line, prefix) {
+			continue
+		}
+		trimmed := strings.TrimLeft(line, " ")
+		var pid int
+		if _, err := fmt.Sscanf(trimmed, "%d", &pid); err == nil && pid > 0 && !seen[pid] {
+			seen[pid] = true
+			pids = append(pids, pid)
+		}
+	}
+	return pids
+}
+
+func cleanupLaunchProcesses(ctx context.Context, ex Execer, appPath, bundleID string, primaryPID int) {
+	pids := uniquePositivePIDs([]int{primaryPID})
+	pids = appendUniquePIDs(pids, findPIDsByAppPath(ctx, ex, appPath)...)
+	if bundleID != "" {
+		pids = appendUniquePIDs(pids, findPIDByBundleID(ctx, ex, bundleID))
+	}
+	for _, pid := range pids {
+		_ = syscall.Kill(pid, syscall.SIGTERM)
+	}
+	time.Sleep(400 * time.Millisecond)
+	for _, pid := range pids {
+		if processAlive(pid) {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	}
+}
+
+func uniquePositivePIDs(in []int) []int {
+	var out []int
+	return appendUniquePIDs(out, in...)
+}
+
+func appendUniquePIDs(out []int, in ...int) []int {
+	seen := map[int]bool{}
+	for _, pid := range out {
+		seen[pid] = true
+	}
+	for _, pid := range in {
+		if pid <= 0 || seen[pid] {
+			continue
+		}
+		seen[pid] = true
+		out = append(out, pid)
+	}
+	return out
 }
 
 func processAlive(pid int) bool {

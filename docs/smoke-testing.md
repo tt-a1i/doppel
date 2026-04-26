@@ -12,6 +12,16 @@ passing.
 scripts/smoke-real-apps.sh
 ```
 
+CI also runs a deterministic fixture smoke on macOS:
+
+```bash
+scripts/smoke-fixture-app.sh
+```
+
+That script creates a minimal signed `.app`, runs `doctor`, dry-run clone, real
+clone with `--launch-test`, and `verify`. It is not a replacement for real-app
+coverage, but it catches regressions in macOS system-tool integration.
+
 Default app candidates:
 
 - `/Applications/cmux.app`
@@ -42,3 +52,12 @@ DOPPEL_SMOKE_DIR=/tmp/my-doppel-smoke scripts/smoke-real-apps.sh
 After a run, update `docs/support-matrix.md` from the JSON reports. Do not mark
 an app as "Launches" unless `verify.launch_test.survived` is true or you
 manually opened the clone and confirmed it stays alive.
+
+To generate draft Markdown rows from smoke JSON reports:
+
+```bash
+scripts/render-support-matrix.sh /tmp/doppel-smoke/*.json
+```
+
+The generated `Type` and `Notes` fields are intentionally conservative. Review
+them before replacing rows in the support matrix.

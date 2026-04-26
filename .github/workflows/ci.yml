@@ -36,3 +36,7 @@ jobs:
 
       - name: Build
         run: go build ./cmd/doppel
+
+      - name: macOS fixture smoke
+        if: matrix.os == 'macos-latest'
+        run: scripts/smoke-fixture-app.sh

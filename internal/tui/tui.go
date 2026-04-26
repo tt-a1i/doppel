@@ -122,6 +122,7 @@ type screen int
 
 const (
 	scrList screen = iota
+	scrPath
 	scrForm
 	scrProgress
 	scrResult
@@ -144,8 +145,14 @@ var stageLabel = map[string]string{
 
 // ——— Messages ———————————————————————————————————————————————————————
 
-type appsLoadedMsg struct{ items []list.Item }
-type appSelectedMsg struct{ report *appinfo.InspectionReport }
+type appsLoadedMsg struct {
+	items   []list.Item
+	skipped []appinfo.ScanSkip
+}
+type appSelectedMsg struct {
+	report *appinfo.InspectionReport
+	err    error
+}
 type planBuiltMsg struct {
 	plan              *clone.ClonePlan
 	preflightFindings []doctor.Finding
@@ -177,6 +184,11 @@ type model struct {
 	listLoading bool
 	listSpin    spinner.Model
 	appCount    int
+	listSkipped []appinfo.ScanSkip
+
+	// manual path
+	pathInput textinput.Model
+	pathErr   string
 
 	// form
 	selected      *appinfo.InspectionReport
@@ -236,12 +248,20 @@ func initialModel() model {
 	l.SetShowHelp(false)
 	l.DisableQuitKeybindings()
 
+	pathInput := textinput.New()
+	pathInput.Placeholder = "/Applications/App.app"
+	pathInput.CharLimit = 1024
+	pathInput.Prompt = "› "
+	pathInput.PromptStyle = lipgloss.NewStyle().Foreground(cPrimary)
+	pathInput.PlaceholderStyle = lipgloss.NewStyle().Foreground(cDim).Italic(true)
+
 	return model{
 		screen:      scrList,
 		listLoading: true,
 		listSpin:    loadSpin,
 		progSpin:    progSpin,
 		list:        l,
+		pathInput:   pathInput,
 		stages:      map[string]*stageState{},
 		launchTest:  true,
 	}
@@ -353,9 +373,9 @@ func (i appItem) FilterValue() string { return i.name + " " + i.bundleID }
 
 func scanAppsCmd() tea.Cmd {
 	return func() tea.Msg {
-		reports, _ := appinfo.ListInstalled(nil)
-		items := make([]list.Item, 0, len(reports))
-		for _, r := range reports {
+		result, _ := appinfo.ScanInstalled(nil)
+		items := make([]list.Item, 0, len(result.Reports))
+		for _, r := range result.Reports {
 			name := r.Identity.DisplayName
 			if name == "" {
 				name = r.Identity.BundleName
@@ -371,7 +391,7 @@ func scanAppsCmd() tea.Cmd {
 				signed:   r.HasSignature,
 			})
 		}
-		return appsLoadedMsg{items: items}
+		return appsLoadedMsg{items: items, skipped: result.Skipped}
 	}
 }
 
@@ -390,6 +410,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.String() == "?" {
 			typing := (m.screen == scrForm) ||
+				(m.screen == scrPath) ||
 				(m.screen == scrList && m.list.SettingFilter())
 			if !typing {
 				m.showHelp = !m.showHelp
@@ -410,6 +431,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.screen {
 	case scrList:
 		return m.updateList(msg)
+	case scrPath:
+		return m.updatePath(msg)
 	case scrForm:
 		return m.updateForm(msg)
 	case scrProgress:
@@ -433,7 +456,8 @@ func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case appsLoadedMsg:
 		m.listLoading = false
 		m.appCount = len(msg.items)
-		m.list.Title = fmt.Sprintf("Pick an app  ·  %d apps", m.appCount)
+		m.listSkipped = msg.skipped
+		m.list.Title = fmt.Sprintf("Pick an app  ·  %d apps  ·  %d skipped", m.appCount, len(m.listSkipped))
 		m.list.SetItems(msg.items)
 		return m, nil
 	case tea.KeyMsg:
@@ -449,8 +473,19 @@ func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if item, ok := m.list.SelectedItem().(appItem); ok {
 				return m, selectAppCmd(item.path)
 			}
+		case "p":
+			if !m.list.SettingFilter() {
+				m.screen = scrPath
+				m.pathErr = ""
+				m.pathInput.Focus()
+				return m, textinput.Blink
+			}
 		}
 	case appSelectedMsg:
+		if msg.err != nil {
+			m.pathErr = msg.err.Error()
+			return m, nil
+		}
 		m.selected = msg.report
 		m.screen = scrForm
 		m.inputs = buildFormInputs(msg.report)
@@ -467,7 +502,7 @@ func selectAppCmd(path string) tea.Cmd {
 	return func() tea.Msg {
 		report, err := appinfo.Inspect(path)
 		if err != nil {
-			return nil
+			return appSelectedMsg{err: err}
 		}
 		return appSelectedMsg{report: report}
 	}
@@ -479,7 +514,73 @@ func (m model) viewList() string {
 			tCaption.Render("reading every Info.plist; takes a second")
 		return cardStyle.Width(m.cardWidth()).Render(body)
 	}
-	return cardStyle.Width(m.cardWidth()).Render(m.list.View())
+	body := m.list.View()
+	if len(m.listSkipped) > 0 {
+		body += "\n" + tCaption.Render(fmt.Sprintf("%d app bundle(s) skipped; press p to enter a path manually.", len(m.listSkipped)))
+		if first := m.listSkipped[0]; first.Path != "" {
+			body += "\n" + tCaption.Render("First skipped: "+filepath.Base(first.Path)+" — "+first.Reason)
+		}
+	} else {
+		body += "\n" + tCaption.Render("Press p to enter an app path manually.")
+	}
+	if m.pathErr != "" {
+		body += "\n" + tErr.Render("✗ "+m.pathErr)
+	}
+	return cardStyle.Width(m.cardWidth()).Render(body)
+}
+
+func (m model) updatePath(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "esc":
+			m.screen = scrList
+			m.pathInput.Blur()
+			m.pathErr = ""
+			return m, nil
+		case "enter":
+			path := strings.TrimSpace(m.pathInput.Value())
+			if path == "" {
+				m.pathErr = "Enter a .app path."
+				return m, nil
+			}
+			return m, selectAppCmd(path)
+		}
+	case appSelectedMsg:
+		if msg.err != nil {
+			m.pathErr = msg.err.Error()
+			return m, nil
+		}
+		m.selected = msg.report
+		m.screen = scrForm
+		m.inputs = buildFormInputs(msg.report)
+		m.formIdx = 0
+		m.pathInput.Blur()
+		m.pathErr = ""
+		m.inputs[0].Focus()
+		return m, textinput.Blink
+	}
+	var cmd tea.Cmd
+	m.pathInput, cmd = m.pathInput.Update(msg)
+	return m, cmd
+}
+
+func (m model) viewPath() string {
+	var b strings.Builder
+	b.WriteString(tTitle.Render("Enter app path"))
+	b.WriteString("\n")
+	b.WriteString(tCaption.Render("Use this when the app is outside the scanned folders or was skipped."))
+	b.WriteString("\n\n")
+	b.WriteString(tLabel.Render("APP PATH"))
+	b.WriteString("\n")
+	b.WriteString(m.pathInput.View())
+	b.WriteString("\n")
+	b.WriteString(tCaption.Render("Must point to a readable .app bundle with Contents/Info.plist."))
+	if m.pathErr != "" {
+		b.WriteString("\n\n")
+		b.WriteString(tErr.Render("✗ " + m.pathErr))
+	}
+	return cardStyle.Width(m.cardWidth()).Render(b.String())
 }
 
 // ——— Screen: form ——————————————————————————————————————————————————————
@@ -1160,7 +1261,7 @@ func (m model) nextStepsBlock() string {
 // ——— Step bar (header) ————————————————————————————————————————————————
 
 func (m model) viewStepBar() string {
-	current := int(m.screen)
+	current := m.stepIndex()
 	parts := make([]string, 0, len(stepLabels)*2)
 	for i, label := range stepLabels {
 		var s string
@@ -1180,6 +1281,21 @@ func (m model) viewStepBar() string {
 	return strings.Join(parts, "")
 }
 
+func (m model) stepIndex() int {
+	switch m.screen {
+	case scrList, scrPath:
+		return 0
+	case scrForm:
+		return 1
+	case scrProgress:
+		return 2
+	case scrResult:
+		return 3
+	default:
+		return 0
+	}
+}
+
 // ——— Footer ————————————————————————————————————————————————————————
 
 func (m model) viewFooter() string {
@@ -1197,7 +1313,9 @@ func (m model) hintsFor(s screen) string {
 		if m.listLoading {
 			return "loading …   ctrl+c quit"
 		}
-		return "enter pick   / filter   ↑↓ move   ? help   q quit"
+		return "enter pick   p path   / filter   ↑↓ move   ? help   q quit"
+	case scrPath:
+		return "enter load path   esc back   ctrl+c quit"
 	case scrForm:
 		return "tab next   shift+tab prev   ctrl+l launch test   ctrl+s start   esc back"
 	case scrProgress:
@@ -1320,6 +1438,8 @@ func (m model) View() string {
 		switch m.screen {
 		case scrList:
 			body = m.viewList()
+		case scrPath:
+			body = m.viewPath()
 		case scrForm:
 			body = m.viewForm()
 		case scrProgress:

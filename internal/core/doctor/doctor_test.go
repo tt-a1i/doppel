@@ -32,6 +32,46 @@ func TestBlockingFindings_ReturnsOnlyErrorSeverity(t *testing.T) {
 	}
 }
 
+func TestSummarizeCompatibilityLevels(t *testing.T) {
+	tests := []struct {
+		name     string
+		findings []Finding
+		want     string
+	}{
+		{name: "ready", findings: nil, want: "ready"},
+		{name: "caution", findings: []Finding{{Code: "sparkle_present", Severity: "warn"}}, want: "caution"},
+		{name: "blocked", findings: []Finding{{Code: "codesign_failed", Severity: "error"}}, want: "blocked"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := SummarizeCompatibility(tc.findings)
+			if got.Level != tc.want {
+				t.Fatalf("Level = %q, want %q", got.Level, tc.want)
+			}
+			if got.Title == "" || got.Recommendation == "" {
+				t.Fatalf("summary should include user-facing title and recommendation: %+v", got)
+			}
+		})
+	}
+}
+
+func TestCompatibilitySummaryJSONUsesStableSnakeCase(t *testing.T) {
+	b, err := json.Marshal(SummarizeCompatibility([]Finding{{Code: "codesign_failed", Severity: "error"}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"level", "title", "recommendation", "error_count", "warning_count", "info_count"} {
+		if _, ok := got[key]; !ok {
+			t.Fatalf("missing JSON key %q in %s", key, b)
+		}
+	}
+}
+
 func TestFindingJSONUsesStableSnakeCase(t *testing.T) {
 	b, err := json.Marshal(Finding{
 		Code:     "codesign_failed",

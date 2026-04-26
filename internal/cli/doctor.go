@@ -24,9 +24,10 @@ func newDoctorCmd() *cobra.Command {
 }
 
 type doctorJSON struct {
-	Command  string           `json:"command"`
-	AppPath  string           `json:"app_path"`
-	Findings []doctor.Finding `json:"findings"`
+	Command  string                      `json:"command"`
+	AppPath  string                      `json:"app_path"`
+	Summary  doctor.CompatibilitySummary `json:"summary"`
+	Findings []doctor.Finding            `json:"findings"`
 }
 
 func runDoctor(appPath string) error {
@@ -37,17 +38,19 @@ func runDoctor(appPath string) error {
 	if err != nil {
 		return err
 	}
+	summary := doctor.SummarizeCompatibility(findings)
 
 	if flagJSON {
-		out := doctorJSON{Command: "doctor", AppPath: appPath, Findings: findings}
+		out := doctorJSON{Command: "doctor", AppPath: appPath, Summary: summary, Findings: findings}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(out)
 	}
 
 	fmt.Printf("App: %s\n", appPath)
+	fmt.Printf("Compatibility: %s — %s\n", summary.Level, summary.Title)
+	fmt.Printf("Recommendation: %s\n", summary.Recommendation)
 	if len(findings) == 0 {
-		fmt.Println("No findings — bundle looks clone-friendly.")
 		return nil
 	}
 	for _, f := range findings {
