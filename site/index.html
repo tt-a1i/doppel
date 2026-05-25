@@ -869,6 +869,30 @@
     color: var(--muted);
     letter-spacing: 0.05em;
   }
+  .foot-credit {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    font-family: "Geist Mono", monospace;
+    font-size: 11px;
+    color: var(--muted-2);
+    letter-spacing: 0.05em;
+  }
+  .foot-credit a {
+    color: var(--muted);
+    text-decoration: none;
+    transition: color 160ms;
+  }
+  .foot-credit a:hover { color: var(--pink); }
+  .foot-credit .sep { color: var(--muted-2); margin: 0 8px; }
+  @media (max-width: 720px) {
+    .foot-credit { flex-direction: column; align-items: flex-start; }
+  }
 
   /* ---------- LANGUAGE TOGGLE ---------- */
   .i-zh { display: none; }
@@ -947,7 +971,7 @@
   })();
 </script>
 
-<header class="nav">
+<header class="nav" id="top">
   <div class="wrap nav-inner">
     <div class="brand">
       <span class="dot"></span>
@@ -1574,6 +1598,17 @@
     <div class="foot-bottom">
       <div>© 2026 · doppel · MIT</div>
       <div><span class="i-en">public beta</span><span class="i-zh">公开 beta</span></div>
+    </div>
+    <div class="foot-credit">
+      <div>
+        <span class="i-en">Designed &amp; built by <a href="https://github.com/tt-a1i" target="_blank" rel="noopener">tt-a1i ↗</a></span>
+        <span class="i-zh">由 <a href="https://github.com/tt-a1i" target="_blank" rel="noopener">tt-a1i ↗</a> 设计与构建</span>
+        <span class="sep">·</span>
+        <a href="https://github.com/tt-a1i/doppel" target="_blank" rel="noopener"><span class="i-en">Source on GitHub</span><span class="i-zh">GitHub 源码</span></a>
+      </div>
+      <div>
+        <a href="#top"><span class="i-en">Back to top ↑</span><span class="i-zh">回到顶部 ↑</span></a>
+      </div>
     </div>
   </div>
 </footer>
