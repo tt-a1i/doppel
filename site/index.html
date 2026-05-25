@@ -1,0 +1,1735 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>doppel — clone any macOS app</title>
+<meta name="description" content="A macOS-only tool to clone an .app bundle into a separately-launchable instance with a new bundle identifier and ad-hoc re-sign." />
+<meta property="og:title" content="doppel — clone any macOS app" />
+<meta property="og:description" content="A macOS-only CLI/TUI that clones .app bundles into separately-launchable instances." />
+<meta property="og:image" content="assets/doppel.png" />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='10' fill='%23ff4d8c'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0a060a;
+    --bg-2: #120a12;
+    --ink: #f3e9ee;
+    --ink-2: #d6c5cd;
+    --muted: #8a7882;
+    --muted-2: #5b4d55;
+    --line: rgba(243, 233, 238, 0.08);
+    --line-2: rgba(243, 233, 238, 0.14);
+    --panel: rgba(255, 255, 255, 0.025);
+    --panel-2: rgba(255, 255, 255, 0.045);
+    --pink: oklch(0.74 0.18 8);
+    --rose: oklch(0.68 0.20 18);
+    --coral: oklch(0.78 0.14 28);
+    --pink-soft: oklch(0.74 0.18 8 / 0.18);
+    --amber: oklch(0.78 0.14 70);
+    --green: oklch(0.74 0.15 152);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Geist", ui-sans-serif, sans-serif;
+    font-weight: 400;
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+    letter-spacing: -0.005em;
+  }
+  body::before {
+    content: "";
+    position: fixed; inset: 0;
+    background:
+      radial-gradient(60% 50% at 75% 12%, oklch(0.55 0.22 12 / 0.28), transparent 70%),
+      radial-gradient(50% 40% at 15% 80%, oklch(0.50 0.20 25 / 0.18), transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::after {
+    content: "";
+    position: fixed; inset: 0;
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(255,255,255,0.04) 1px, transparent 0);
+    background-size: 32px 32px;
+    pointer-events: none;
+    z-index: 0;
+    mask-image: radial-gradient(ellipse at center, black 30%, transparent 80%);
+  }
+  main, header, footer { position: relative; z-index: 1; }
+
+  .wrap {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 32px;
+  }
+
+  /* ---------- NAV ---------- */
+  header.nav {
+    position: sticky; top: 0; z-index: 50;
+    backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+    background: linear-gradient(180deg, rgba(10,6,10,0.85), rgba(10,6,10,0.6));
+    border-bottom: 1px solid var(--line);
+  }
+  .nav-inner {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 0;
+  }
+  .brand {
+    display: flex; align-items: center; gap: 10px;
+    font-family: "Instrument Serif", serif;
+    font-style: italic;
+    font-size: 24px;
+    letter-spacing: -0.01em;
+  }
+  .brand .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--pink);
+    box-shadow: 0 0 12px var(--pink), 0 0 24px var(--pink-soft);
+  }
+  .nav-links { display: flex; gap: 8px; align-items: center; }
+  .nav-links a {
+    color: var(--ink-2);
+    text-decoration: none;
+    font-size: 13px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    transition: background 160ms, color 160ms;
+    letter-spacing: 0.01em;
+  }
+  .nav-links a:hover { color: var(--ink); background: var(--panel-2); }
+  .nav-links a.nav-cta {
+    background: var(--ink);
+    color: var(--bg) !important;
+    font-weight: 500;
+    padding: 9px 16px !important;
+  }
+  .nav-links a.nav-cta:hover { background: #fff; color: var(--bg) !important; }
+
+  /* ---------- HERO ---------- */
+  .hero { padding: 88px 0 80px; position: relative; }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.15fr;
+    gap: 64px;
+    align-items: center;
+  }
+  .hero-art {
+    position: relative;
+    border-radius: 20px;
+    overflow: hidden;
+    border: 1px solid var(--line-2);
+    background: #0a060a;
+    box-shadow:
+      0 40px 120px rgba(0,0,0,0.6),
+      0 0 0 1px rgba(255,255,255,0.02) inset;
+    transform: translateY(0);
+    transition: transform 600ms cubic-bezier(0.2, 0.7, 0.2, 1);
+    aspect-ratio: 1672 / 941;
+  }
+  .hero-art::before {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    background: linear-gradient(135deg, oklch(0.55 0.22 12 / 0.4), transparent 40%, oklch(0.55 0.22 30 / 0.3));
+    z-index: 0;
+    border-radius: 20px;
+    opacity: 0.6;
+    pointer-events: none;
+  }
+  .hero-art::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, transparent 60%, rgba(10,6,10,0.4));
+    z-index: 2;
+    pointer-events: none;
+  }
+  .hero-art img {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    animation: floatHero 8s ease-in-out infinite;
+  }
+  @keyframes floatHero {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-8px); }
+  }
+  .hero-art .chrome-top {
+    position: absolute;
+    top: 14px; left: 14px;
+    display: flex; gap: 6px;
+    z-index: 3;
+  }
+  .hero-art .chrome-top span {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: rgba(255,255,255,0.15);
+  }
+  .hero-art .chrome-top span:nth-child(1) { background: #ff5f57; }
+  .hero-art .chrome-top span:nth-child(2) { background: #febc2e; }
+  .hero-art .chrome-top span:nth-child(3) { background: #28c840; }
+  .hero-art-glow {
+    position: absolute;
+    inset: -40px;
+    background: radial-gradient(closest-side, oklch(0.55 0.22 12 / 0.35), transparent 70%);
+    z-index: -1;
+    filter: blur(30px);
+    pointer-events: none;
+  }
+  .hero-art-wrap { position: relative; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 10px;
+    font-family: "Geist Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 7px 14px;
+    border: 1px solid var(--line-2);
+    border-radius: 999px;
+    background: var(--panel);
+  }
+  .eyebrow .live {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  h1.headline {
+    font-family: "Instrument Serif", serif;
+    font-weight: 400;
+    font-size: clamp(44px, 5.6vw, 84px);
+    line-height: 0.96;
+    letter-spacing: -0.03em;
+    margin: 24px 0 0;
+    color: var(--ink);
+  }
+  .headline .accent {
+    font-style: italic;
+    background: linear-gradient(135deg, oklch(0.85 0.16 8), oklch(0.65 0.22 18) 60%, oklch(0.55 0.22 30));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .lede {
+    max-width: 560px;
+    margin-top: 28px;
+    color: var(--ink-2);
+    font-size: 17px;
+    line-height: 1.6;
+    letter-spacing: -0.005em;
+  }
+  .lede em {
+    font-family: "Instrument Serif", serif;
+    font-style: italic;
+    font-size: 22px;
+    color: var(--ink);
+  }
+
+  .hero-cta {
+    display: flex; align-items: center; gap: 16px;
+    margin-top: 40px;
+    flex-wrap: wrap;
+  }
+  .install {
+    display: inline-flex; align-items: center; gap: 14px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--line-2);
+    padding: 14px 18px;
+    border-radius: 14px;
+    font-family: "Geist Mono", monospace;
+    font-size: 14px;
+    transition: border-color 160ms, background 160ms;
+  }
+  .install:hover { border-color: var(--pink); background: rgba(255,255,255,0.05); }
+  .install .prompt { color: var(--muted); }
+  .install .cmd { color: var(--ink); }
+  .copy-btn {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 6px;
+    font-family: "Geist Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    transition: color 160ms, background 160ms;
+  }
+  .copy-btn:hover { color: var(--ink); background: var(--panel-2); }
+  .copy-btn.copied { color: var(--green); }
+  .btn-ghost {
+    color: var(--ink-2);
+    text-decoration: none;
+    font-size: 14px;
+    padding: 14px 4px;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: color 160ms;
+  }
+  .btn-ghost:hover { color: var(--pink); }
+  .btn-ghost .arrow { transition: transform 200ms; }
+  .btn-ghost:hover .arrow { transform: translateX(3px); }
+
+  .hero-meta {
+    margin-top: 44px;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+    border-top: 1px solid var(--line);
+    padding-top: 28px;
+    max-width: 460px;
+  }
+  .hero-meta div { display: flex; flex-direction: column; gap: 4px; }
+  .hero-meta .k {
+    font-family: "Geist Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .hero-meta .v {
+    font-family: "Instrument Serif", serif;
+    font-style: italic;
+    font-size: 26px;
+    color: var(--ink);
+    line-height: 1;
+  }
+
+  /* ---------- PIPELINE ---------- */
+  section.pipeline { padding: 120px 0; position: relative; }
+  .section-head { display: flex; flex-direction: column; gap: 14px; margin-bottom: 56px; }
+  .section-label {
+    font-family: "Geist Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--pink);
+  }
+  .section-title {
+    font-family: "Instrument Serif", serif;
+    font-weight: 400;
+    font-size: clamp(40px, 5vw, 64px);
+    line-height: 1.0;
+    letter-spacing: -0.025em;
+    margin: 0;
+    max-width: 780px;
+  }
+  .section-title em { font-style: italic; color: var(--ink-2); }
+  .section-sub {
+    color: var(--ink-2);
+    font-size: 17px;
+    max-width: 580px;
+    margin-top: 8px;
+  }
+
+  .pipeline-stage {
+    position: relative;
+    background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));
+    border: 1px solid var(--line-2);
+    border-radius: 24px;
+    padding: 48px;
+    overflow: hidden;
+  }
+  .pipeline-stage::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    background: radial-gradient(60% 100% at 50% 0%, oklch(0.55 0.22 12 / 0.25), transparent 60%);
+    pointer-events: none;
+  }
+  .pipeline-flow {
+    position: relative;
+    display: grid;
+    grid-template-columns: 140px 1fr 140px;
+    align-items: center;
+    gap: 32px;
+  }
+  .bundle {
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+    text-align: center;
+  }
+  .bundle-icon {
+    width: 100px; height: 100px;
+    border-radius: 22px;
+    background: linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+    border: 1px solid var(--line-2);
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06);
+  }
+  .bundle-icon.target {
+    border-color: oklch(0.55 0.22 12 / 0.5);
+    box-shadow: 0 12px 40px oklch(0.55 0.22 12 / 0.25), inset 0 1px 0 rgba(255,255,255,0.08), 0 0 60px oklch(0.55 0.22 12 / 0.3);
+    background: linear-gradient(135deg, oklch(0.55 0.22 12 / 0.18), oklch(0.55 0.22 12 / 0.04));
+  }
+  .bundle-icon svg { width: 44px; height: 44px; }
+  .bundle .name {
+    font-family: "Geist Mono", monospace;
+    font-size: 12px;
+    color: var(--ink);
+  }
+  .bundle .sub {
+    font-family: "Geist Mono", monospace;
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .bundle .id {
+    font-family: "Geist Mono", monospace;
+    font-size: 10px;
+    color: var(--muted-2);
+    margin-top: 6px;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .stages {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: relative;
+    padding: 0 8px;
+  }
+  .stages::before {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; top: 50%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--line-2) 8%, var(--line-2) 92%, transparent);
+  }
+  .stages::after {
+    content: "";
+    position: absolute;
+    left: 0; top: 50%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--pink), transparent);
+    width: 0;
+    animation: scan 6s ease-in-out infinite;
+    opacity: 0.7;
+  }
+  @keyframes scan {
+    0% { width: 0; left: 0; opacity: 0; }
+    10% { opacity: 0.9; }
+    90% { opacity: 0.9; }
+    100% { width: 0; left: 100%; opacity: 0; }
+  }
+  .stage {
+    position: relative;
+    width: 56px; height: 56px; border-radius: 50%;
+    background: var(--bg-2);
+    border: 1px solid var(--line-2);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: all 240ms cubic-bezier(0.4,0,0.2,1);
+    z-index: 2;
+  }
+  .stage svg { width: 22px; height: 22px; color: var(--ink-2); transition: color 240ms; }
+  .stage:hover, .stage.active {
+    border-color: var(--pink);
+    background: oklch(0.55 0.22 12 / 0.15);
+    transform: scale(1.1);
+    box-shadow: 0 0 0 6px oklch(0.55 0.22 12 / 0.08), 0 0 30px oklch(0.55 0.22 12 / 0.4);
+  }
+  .stage:hover svg, .stage.active svg { color: var(--ink); }
+  .stage-label {
+    position: absolute;
+    bottom: -28px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: "Geist Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    white-space: nowrap;
+    transition: color 240ms;
+  }
+  .stage:hover .stage-label, .stage.active .stage-label { color: var(--ink); }
+
+  .stage-detail {
+    margin-top: 56px;
+    display: grid;
+    grid-template-columns: 1fr 1.2fr;
+    gap: 48px;
+    align-items: start;
+    padding-top: 40px;
+    border-top: 1px solid var(--line);
+    min-height: 220px;
+  }
+  .stage-detail h3 {
+    font-family: "Instrument Serif", serif;
+    font-weight: 400;
+    font-style: italic;
+    font-size: 36px;
+    line-height: 1;
+    margin: 0 0 8px;
+    letter-spacing: -0.02em;
+  }
+  .stage-detail .num {
+    font-family: "Geist Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--pink);
+    margin-bottom: 18px;
+    display: block;
+  }
+  .stage-detail p {
+    color: var(--ink-2);
+    font-size: 16px;
+    line-height: 1.6;
+    margin: 0;
+  }
+  .stage-code {
+    background: rgba(0,0,0,0.4);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 24px;
+    font-family: "Geist Mono", monospace;
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--ink-2);
+    overflow: hidden;
+  }
+  .stage-code .c { color: var(--muted); }
+  .stage-code .p { color: var(--pink); }
+  .stage-code .g { color: var(--green); }
+  .stage-code .a { color: var(--amber); }
+
+  /* ---------- MODES ---------- */
+  section.modes { padding: 120px 0 80px; }
+  .modes-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+  }
+  .terminal {
+    background: linear-gradient(180deg, #0d090d, #0a060a);
+    border: 1px solid var(--line-2);
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+    position: relative;
+  }
+  .terminal::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(60% 80% at 50% 0%, oklch(0.55 0.22 12 / 0.12), transparent 70%);
+    pointer-events: none;
+  }
+  .term-bar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(0,0,0,0.3);
+  }
+  .term-bar .dots { display: flex; gap: 7px; }
+  .term-bar .dots span {
+    width: 11px; height: 11px; border-radius: 50%;
+    background: rgba(255,255,255,0.12);
+  }
+  .term-bar .dots span:nth-child(1) { background: #ff5f57; }
+  .term-bar .dots span:nth-child(2) { background: #febc2e; }
+  .term-bar .dots span:nth-child(3) { background: #28c840; }
+  .term-bar .title {
+    flex: 1;
+    text-align: center;
+    font-family: "Geist Mono", monospace;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+  .term-body {
+    padding: 24px 24px 28px;
+    font-family: "Geist Mono", monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--ink-2);
+    min-height: 380px;
+    position: relative;
+    z-index: 1;
+  }
+  .term-body .prompt { color: var(--pink); }
+  .term-body .out { color: var(--muted); }
+  .term-body .ok { color: var(--green); }
+  .term-body .warn { color: var(--amber); }
+  .term-body .hi { color: var(--ink); }
+  .term-body .dim { color: var(--muted-2); }
+  .term-body .cursor {
+    display: inline-block;
+    width: 8px; height: 14px;
+    background: var(--pink);
+    vertical-align: text-bottom;
+    margin-left: 2px;
+    animation: blink 1s step-end infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .mode-header {
+    display: flex; align-items: baseline; gap: 14px;
+    margin-bottom: 14px;
+  }
+  .mode-header h3 {
+    font-family: "Instrument Serif", serif;
+    font-weight: 400;
+    font-size: 28px;
+    margin: 0;
+    letter-spacing: -0.02em;
+  }
+  .mode-header h3 em { font-style: italic; }
+  .mode-header .tag {
+    font-family: "Geist Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 3px 9px;
+    border: 1px solid var(--line-2);
+    border-radius: 999px;
+  }
+  .mode-desc {
+    color: var(--ink-2);
+    margin: 0 0 18px;
+    font-size: 14.5px;
+    max-width: 540px;
+  }
+
+  /* TUI fake */
+  .tui-body {
+    background: #0a060a;
+  }
+  .tui-row {
+    display: flex; align-items: center; gap: 14px;
+    padding: 6px 12px;
+    border-radius: 6px;
+  }
+  .tui-row.sel { background: oklch(0.55 0.22 12 / 0.2); }
+  .tui-row .icn {
+    width: 18px; height: 18px;
+    border-radius: 4px;
+    background: linear-gradient(135deg, oklch(0.55 0.22 12 / 0.4), oklch(0.55 0.22 12 / 0.1));
+    border: 1px solid oklch(0.55 0.22 12 / 0.3);
+  }
+  .tui-row .nm { flex: 1; color: var(--ink); }
+  .tui-row .bid { color: var(--muted); font-size: 11px; }
+  .tui-row .sz { color: var(--muted-2); font-size: 11px; }
+
+  /* ---------- HOW IT WORKS GRID ---------- */
+  section.how { padding: 100px 0; }
+  .how-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    overflow: hidden;
+  }
+  .how-cell {
+    background: var(--bg);
+    padding: 36px 32px;
+    position: relative;
+    transition: background 240ms;
+  }
+  .how-cell:hover { background: var(--bg-2); }
+  .how-cell .step {
+    font-family: "Geist Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    color: var(--pink);
+    text-transform: uppercase;
+    margin-bottom: 14px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .how-cell .step .n {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: oklch(0.55 0.22 12 / 0.2);
+    border: 1px solid oklch(0.55 0.22 12 / 0.4);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 10px;
+    color: var(--ink);
+  }
+  .how-cell h4 {
+    font-family: "Instrument Serif", serif;
+    font-weight: 400;
+    font-size: 26px;
+    margin: 0 0 10px;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+  }
+  .how-cell h4 em { font-style: italic; }
+  .how-cell p {
+    color: var(--ink-2);
+    font-size: 14.5px;
+    margin: 0;
+    line-height: 1.55;
+  }
+  .how-cell code {
+    font-family: "Geist Mono", monospace;
+    font-size: 12px;
+    color: var(--pink);
+    background: oklch(0.55 0.22 12 / 0.1);
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+
+  /* ---------- MATRIX ---------- */
+  section.matrix { padding: 100px 0; }
+  .matrix-table {
+    border: 1px solid var(--line-2);
+    border-radius: 18px;
+    overflow: hidden;
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+  }
+  .mrow {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 0.8fr 0.8fr 2fr;
+    align-items: center;
+    padding: 18px 24px;
+    border-top: 1px solid var(--line);
+    gap: 16px;
+    transition: background 200ms;
+  }
+  .mrow:first-child { border-top: none; }
+  .mrow:hover:not(.head) { background: rgba(255,255,255,0.02); }
+  .mrow.head {
+    background: rgba(255,255,255,0.03);
+    font-family: "Geist Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 14px 24px;
+  }
+  .mrow .app {
+    display: flex; align-items: center; gap: 12px;
+    font-family: "Instrument Serif", serif;
+    font-style: italic;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+  }
+  .mrow .app .ico {
+    width: 28px; height: 28px;
+    border-radius: 7px;
+    background: linear-gradient(135deg, oklch(0.55 0.22 12 / 0.4), oklch(0.55 0.22 12 / 0.1));
+    border: 1px solid oklch(0.55 0.22 12 / 0.3);
+    flex-shrink: 0;
+  }
+  .mrow .type { color: var(--ink-2); font-size: 13px; font-family: "Geist Mono", monospace; }
+  .mrow .status {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-family: "Geist Mono", monospace;
+    font-size: 12px;
+  }
+  .status .pill {
+    width: 16px; height: 16px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 10px;
+  }
+  .status.ok { color: var(--green); }
+  .status.ok .pill { background: oklch(0.74 0.15 152 / 0.18); }
+  .status.warn { color: var(--amber); }
+  .status.warn .pill { background: oklch(0.78 0.14 70 / 0.18); }
+  .status.bad { color: var(--rose); }
+  .status.bad .pill { background: oklch(0.68 0.20 18 / 0.18); }
+  .mrow .note { color: var(--muted); font-size: 13px; line-height: 1.5; }
+
+  /* ---------- CAVEATS ---------- */
+  section.caveats { padding: 100px 0 60px; }
+  .caveats-wrap {
+    display: grid;
+    grid-template-columns: 1fr 1.4fr;
+    gap: 64px;
+    align-items: start;
+  }
+  .caveat-list { display: flex; flex-direction: column; gap: 0; }
+  .caveat {
+    padding: 28px 0;
+    border-top: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: 60px 1fr;
+    gap: 24px;
+    align-items: start;
+  }
+  .caveat:first-child { border-top: 1px solid var(--line-2); }
+  .caveat:last-child { border-bottom: 1px solid var(--line); }
+  .caveat .idx {
+    font-family: "Geist Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+    padding-top: 4px;
+  }
+  .caveat h5 {
+    font-family: "Instrument Serif", serif;
+    font-weight: 400;
+    font-style: italic;
+    font-size: 22px;
+    margin: 0 0 6px;
+    letter-spacing: -0.01em;
+  }
+  .caveat p { margin: 0; color: var(--ink-2); font-size: 14.5px; }
+
+  /* ---------- CTA ---------- */
+  section.cta-final {
+    padding: 120px 0;
+    text-align: center;
+    position: relative;
+  }
+  .cta-final::before {
+    content: "";
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: 700px; height: 700px;
+    border-radius: 50%;
+    background: radial-gradient(circle, oklch(0.55 0.22 12 / 0.18), transparent 70%);
+    pointer-events: none;
+  }
+  .cta-final h2 {
+    font-family: "Instrument Serif", serif;
+    font-weight: 400;
+    font-size: clamp(48px, 6vw, 88px);
+    line-height: 1.0;
+    letter-spacing: -0.03em;
+    margin: 0 0 32px;
+    position: relative;
+  }
+  .cta-final h2 em { font-style: italic; }
+  .cta-final .install { margin-top: 0; }
+  .cta-row {
+    display: flex; gap: 14px; justify-content: center; flex-wrap: wrap;
+    position: relative;
+  }
+
+  /* ---------- FOOTER ---------- */
+  footer {
+    padding: 60px 0 40px;
+    border-top: 1px solid var(--line);
+    position: relative;
+  }
+  .foot-grid {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr 1fr 1fr;
+    gap: 48px;
+    margin-bottom: 48px;
+  }
+  .foot-grid h6 {
+    font-family: "Geist Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 16px;
+    font-weight: 500;
+  }
+  .foot-grid a {
+    display: block;
+    color: var(--ink-2);
+    text-decoration: none;
+    font-size: 14px;
+    padding: 4px 0;
+    transition: color 160ms;
+  }
+  .foot-grid a:hover { color: var(--pink); }
+  .foot-grid p {
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.55;
+    margin: 0;
+    max-width: 280px;
+  }
+  .foot-bottom {
+    border-top: 1px solid var(--line);
+    padding-top: 24px;
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: "Geist Mono", monospace;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+
+  /* ---------- LANGUAGE TOGGLE ---------- */
+  .i-zh { display: none; }
+  body.lang-zh .i-en { display: none; }
+  body.lang-zh .i-zh { display: revert; }
+  body.lang-zh {
+    /* mild line-height bump for CJK */
+    font-feature-settings: "palt";
+  }
+  body.lang-zh h1.headline,
+  body.lang-zh .section-title,
+  body.lang-zh .stage-detail h3,
+  body.lang-zh .how-cell h4,
+  body.lang-zh .caveat h5,
+  body.lang-zh .mrow .app,
+  body.lang-zh .cta-final h2,
+  body.lang-zh .hero-meta .v,
+  body.lang-zh .mode-header h3 {
+    /* Chinese display: switch serif → a more elegant CJK serif */
+    font-family: "Instrument Serif", "Songti SC", "STSong", "Source Han Serif SC", "Noto Serif SC", serif;
+    letter-spacing: 0;
+  }
+  body.lang-zh h1.headline { line-height: 1.05; }
+  .lang-toggle {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--line-2);
+    border-radius: 999px;
+    overflow: hidden;
+    margin-right: 6px;
+    background: var(--panel);
+  }
+  .lang-toggle button {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-family: "Geist Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    padding: 7px 12px;
+    cursor: pointer;
+    transition: color 160ms, background 160ms;
+  }
+  .lang-toggle button:hover { color: var(--ink); }
+  .lang-toggle button.active {
+    color: var(--ink);
+    background: rgba(255,255,255,0.06);
+  }
+
+  @media (max-width: 1024px) {
+    .hero-grid { grid-template-columns: 1fr; gap: 48px; }
+  }
+  @media (max-width: 900px) {
+    .modes-grid, .how-grid, .caveats-wrap, .foot-grid { grid-template-columns: 1fr; }
+    .pipeline-flow { grid-template-columns: 1fr; }
+    .stages { overflow-x: auto; padding-bottom: 30px; }
+    .stage-detail { grid-template-columns: 1fr; }
+    .hero-meta { grid-template-columns: 1fr 1fr; }
+    .mrow { grid-template-columns: 1fr; gap: 6px; }
+    .mrow.head { display: none; }
+  }
+</style>
+</head>
+<body class="lang-en">
+<script>
+  // Apply saved language immediately to avoid flash
+  (function(){
+    try {
+      var l = localStorage.getItem('doppel-lang');
+      if (l === 'zh') {
+        document.body.classList.remove('lang-en');
+        document.body.classList.add('lang-zh');
+        document.documentElement.lang = 'zh';
+      }
+    } catch (e) {}
+  })();
+</script>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <div class="brand">
+      <span class="dot"></span>
+      doppel
+    </div>
+    <nav class="nav-links">
+      <a href="#pipeline"><span class="i-en">Pipeline</span><span class="i-zh">流水线</span></a>
+      <a href="#modes"><span class="i-en">Modes</span><span class="i-zh">两种模式</span></a>
+      <a href="#matrix"><span class="i-en">Compatibility</span><span class="i-zh">兼容性</span></a>
+      <a href="#caveats"><span class="i-en">Caveats</span><span class="i-zh">注意事项</span></a>
+      <div class="lang-toggle" role="group" aria-label="Language">
+        <button data-lang="en" class="active">EN</button>
+        <button data-lang="zh">中</button>
+      </div>
+      <a href="https://github.com/tt-a1i/doppel" class="nav-cta">
+        <span class="i-en">View on GitHub →</span><span class="i-zh">查看 GitHub →</span>
+      </a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="wrap">
+    <div class="hero-grid">
+
+      <div class="hero-text">
+        <span class="eyebrow"><span class="live"></span><span class="i-en">public beta · macOS only</span><span class="i-zh">公开 beta · 仅 macOS</span></span>
+
+        <h1 class="headline">
+          <span class="i-en">A <span class="accent">second self</span><br />for any macOS app.</span>
+          <span class="i-zh">为任何 macOS 应用<br />造一个<span class="accent">分身</span>。</span>
+        </h1>
+
+        <p class="lede">
+          <span class="i-en">doppel duplicates an <em>.app</em> bundle into a separately-launchable
+          instance — with a new bundle identifier and a local ad-hoc re-sign.
+          One binary, two modes: a full-screen <em>TUI</em> for picking, a
+          scriptable <em>CLI</em> for everything else.</span>
+          <span class="i-zh">doppel 把 <em>.app</em> bundle 克隆成一个可独立启动的第二实例 ——
+          拥有新的 bundle identifier，并完成本地 ad-hoc 重签名。
+          一份二进制，两种模式：交互式的 <em>TUI</em> 用来挑选，可脚本化的
+          <em>CLI</em> 应对其他一切。</span>
+        </p>
+
+        <div class="hero-cta">
+          <div class="install" id="install-hero">
+            <span class="prompt">$</span>
+            <span class="cmd">brew install tt-a1i/tap/doppel</span>
+            <button class="copy-btn" data-copy="brew install tt-a1i/tap/doppel"><span class="i-en">Copy</span><span class="i-zh">复制</span></button>
+          </div>
+          <a class="btn-ghost" href="#pipeline">
+            <span class="i-en">See how it works</span><span class="i-zh">看看它怎么工作</span>
+            <span class="arrow">→</span>
+          </a>
+        </div>
+
+        <div class="hero-meta">
+          <div>
+            <span class="k"><span class="i-en">Pipeline</span><span class="i-zh">流水线</span></span>
+            <span class="v"><span class="i-en">6 stages</span><span class="i-zh">6 个阶段</span></span>
+          </div>
+          <div>
+            <span class="k"><span class="i-en">Modes</span><span class="i-zh">模式</span></span>
+            <span class="v">TUI · CLI</span>
+          </div>
+          <div>
+            <span class="k"><span class="i-en">Runtime</span><span class="i-zh">运行环境</span></span>
+            <span class="v">macOS</span>
+          </div>
+          <div>
+            <span class="k"><span class="i-en">License</span><span class="i-zh">许可证</span></span>
+            <span class="v"><span class="i-en">Open source</span><span class="i-zh">开源</span></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero-art-wrap">
+        <div class="hero-art-glow"></div>
+        <div class="hero-art">
+          <div class="chrome-top"><span></span><span></span><span></span></div>
+          <img src="assets/doppel.png" alt="doppel — clone any macOS app pipeline diagram" />
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- PIPELINE -->
+<section class="pipeline" id="pipeline">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="section-label"><span class="i-en">The clone pipeline · 06 stages</span><span class="i-zh">克隆流水线 · 06 个阶段</span></span>
+      <h2 class="section-title">
+        <span class="i-en">From bundle to <em>doppelgänger</em>, in six precise steps.</span>
+        <span class="i-zh">从源 bundle 到<em>分身</em>，六个精确步骤。</span>
+      </h2>
+      <p class="section-sub">
+        <span class="i-en">Each stage emits a structured event the TUI and CLI render in real time. Hover any node to inspect what happens.</span>
+        <span class="i-zh">每个阶段都会发出一个结构化事件，TUI 和 CLI 实时渲染。悬停任意节点查看详情。</span>
+      </p>
+    </div>
+
+    <div class="pipeline-stage">
+      <div class="pipeline-flow">
+
+        <div class="bundle">
+          <div class="bundle-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+              <path d="M3 8a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8Z"/>
+              <rect x="9" y="11" width="6" height="6" rx="0.6"/>
+              <path d="M9 13.5 12 15l3-1.5M12 11v4"/>
+            </svg>
+          </div>
+          <span class="name">cmux.app</span>
+          <span class="sub"><span class="i-en">source · read-only</span><span class="i-zh">源 · 只读</span></span>
+          <span class="id">com.cmux.app</span>
+        </div>
+
+        <div class="stages" id="stages">
+          <button class="stage active" data-stage="0">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></svg>
+            <span class="stage-label">copy</span>
+          </button>
+          <button class="stage" data-stage="1">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9l-5-6Z"/><path d="M14 3v6h5"/><circle cx="12" cy="15" r="1.5"/><path d="M12 12.5V11M12 18.5V17M14.5 15h1.2M8.3 15h1.2"/></svg>
+            <span class="stage-label">plist</span>
+          </button>
+          <button class="stage" data-stage="2">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3Z"/><path d="M8 12h8"/></svg>
+            <span class="stage-label">ents</span>
+          </button>
+          <button class="stage" data-stage="3">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v3M12 10l-6 7M12 10l6 7"/></svg>
+            <span class="stage-label">discover</span>
+          </button>
+          <button class="stage" data-stage="4">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m4 20 4-1 10.5-10.5a2.1 2.1 0 0 0-3-3L5 16 4 20Z"/><path d="m13 6 4 4"/></svg>
+            <span class="stage-label">resign</span>
+          </button>
+          <button class="stage" data-stage="5">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg>
+            <span class="stage-label">verify</span>
+          </button>
+        </div>
+
+        <div class="bundle">
+          <div class="bundle-icon target">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+              <path d="M3 8a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8Z"/>
+              <rect x="9" y="11" width="6" height="6" rx="0.6"/>
+              <path d="M9 13.5 12 15l3-1.5M12 11v4"/>
+            </svg>
+          </div>
+          <span class="name">cmux2.app</span>
+          <span class="sub" style="color: var(--pink)"><span class="i-en">clone · ad-hoc signed</span><span class="i-zh">克隆 · ad-hoc 已签名</span></span>
+          <span class="id">com.cmux.app.cmux2</span>
+        </div>
+
+      </div>
+
+      <div class="stage-detail" id="stage-detail">
+        <div>
+          <span class="num" id="d-num">Stage 01 · copy</span>
+          <h3 id="d-title">Faithful, byte-for-byte.</h3>
+          <p id="d-desc"></p>
+        </div>
+        <pre class="stage-code" id="d-code"></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- MODES -->
+<section class="modes" id="modes">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="section-label"><span class="i-en">One binary · two modes</span><span class="i-zh">一份二进制 · 两种模式</span></span>
+      <h2 class="section-title">
+        <span class="i-en">Sit in the chair, or <em>pipe it through.</em></span>
+        <span class="i-zh">坐进驾驶座，或者<em>接进管道。</em></span>
+      </h2>
+      <p class="section-sub">
+        <span class="i-en">A full-screen interactive TUI for humans. A structured, <code>--json</code>-emitting CLI for everyone else.</span>
+        <span class="i-zh">给人用的全屏交互 TUI。给其他一切用的、能输出 <code>--json</code> 的 CLI。</span>
+      </p>
+    </div>
+
+    <div class="modes-grid">
+
+      <!-- TUI -->
+      <div>
+        <div class="mode-header">
+          <h3><em>doppel</em></h3>
+          <span class="tag"><span class="i-en">Interactive TUI</span><span class="i-zh">交互式 TUI</span></span>
+        </div>
+        <p class="mode-desc">
+          <span class="i-en">Scans <code style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--pink)">/Applications</code>, <code style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--pink)">/Applications/Utilities</code> and <code style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--pink)">~/Applications</code>. Pick, name, watch it run.</span>
+          <span class="i-zh">扫描 <code style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--pink)">/Applications</code>、<code style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--pink)">/Applications/Utilities</code> 和 <code style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--pink)">~/Applications</code>。挑一个、起个名、看它跑。</span>
+        </p>
+
+        <div class="terminal">
+          <div class="term-bar">
+            <div class="dots"><span></span><span></span><span></span></div>
+            <div class="title">~/Applications — doppel — 96×30</div>
+          </div>
+          <div class="term-body tui-body">
+            <div style="color:var(--pink);margin-bottom:14px;"><span class="i-en">doppel · pick an app to clone <span style="color:var(--muted);font-size:11px;">·  ↑↓ navigate · enter select · p paste path · q quit</span></span><span class="i-zh">doppel · 选一个 app 来克隆 <span style="color:var(--muted);font-size:11px;">·  ↑↓ 移动 · 回车 选中 · p 粘贴路径 · q 退出</span></span></div>
+
+            <div class="tui-row">
+              <div class="icn"></div>
+              <div class="nm">Alacritty</div>
+              <div class="bid">org.alacritty</div>
+              <div class="sz">8.2 MB</div>
+            </div>
+            <div class="tui-row">
+              <div class="icn"></div>
+              <div class="nm">Cherry Studio</div>
+              <div class="bid">com.kangfenmao.CherryStudio</div>
+              <div class="sz">218.4 MB</div>
+            </div>
+            <div class="tui-row sel">
+              <div class="icn"></div>
+              <div class="nm" style="color:#fff;">▸ cmux</div>
+              <div class="bid">com.cmux.app</div>
+              <div class="sz">42.1 MB</div>
+            </div>
+            <div class="tui-row">
+              <div class="icn"></div>
+              <div class="nm">Ghostty</div>
+              <div class="bid">com.mitchellh.ghostty</div>
+              <div class="sz">66.7 MB</div>
+            </div>
+            <div class="tui-row">
+              <div class="icn"></div>
+              <div class="nm">LocalSend</div>
+              <div class="bid">org.localsend.localsend_app</div>
+              <div class="sz">36.0 MB</div>
+            </div>
+
+            <div style="margin-top:24px;padding-top:14px;border-top:1px solid var(--line);">
+              <div style="color:var(--muted);font-size:11px;letter-spacing:0.08em;margin-bottom:8px;"><span class="i-en">SELECTED · cmux.app</span><span class="i-zh">已选中 · cmux.app</span></div>
+              <div style="display:flex;gap:24px;">
+                <div><span class="dim"><span class="i-en">name</span><span class="i-zh">名称</span></span> <span class="hi">cmux2</span></div>
+                <div><span class="dim">id</span> <span class="hi">com.cmux.app.cmux2</span> <span class="dim"><span class="i-en">(auto)</span><span class="i-zh">(自动)</span></span></div>
+                <div><span class="dim"><span class="i-en">launch-test</span><span class="i-zh">启动测试</span></span> <span class="ok"><span class="i-en">on</span><span class="i-zh">开启</span></span></div>
+              </div>
+              <div style="margin-top:14px;color:var(--pink);"><span class="i-en">[enter] clone →</span><span class="i-zh">[回车] 开始克隆 →</span><span class="cursor"></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CLI -->
+      <div>
+        <div class="mode-header">
+          <h3><em>doppel clone</em></h3>
+          <span class="tag"><span class="i-en">Scriptable CLI</span><span class="i-zh">可脚本化的 CLI</span></span>
+        </div>
+        <p class="mode-desc">
+          <span class="i-en">Same pipeline, structured output. Pass <code style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--pink)">--json</code> and pipe it anywhere.</span>
+          <span class="i-zh">同一条流水线，结构化输出。加 <code style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--pink)">--json</code>，往哪接都行。</span>
+        </p>
+
+        <div class="terminal">
+          <div class="term-bar">
+            <div class="dots"><span></span><span></span><span></span></div>
+            <div class="title">~ — zsh — 96×30</div>
+          </div>
+          <div class="term-body" id="cli-term">
+            <div><span class="prompt">$</span> doppel doctor /Applications/cmux.app</div>
+            <div class="out">  → 8 rules · 0 errors · 1 info</div>
+            <div class="ok">  ✓ ready · Swift + Sparkle · 4 signables</div>
+            <div>&nbsp;</div>
+            <div><span class="prompt">$</span> doppel clone /Applications/cmux.app \</div>
+            <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="hi">--name</span> cmux2 \</div>
+            <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="hi">--launch-test</span></div>
+            <div>&nbsp;</div>
+            <div class="ok">  ✓ copy       · 2,847 entries · 214.3 MB</div>
+            <div class="ok">  ✓ plist      · CFBundleIdentifier → com.cmux.app.cmux2</div>
+            <div class="ok">  ✓ ents       · stripped 3 identity-bound keys</div>
+            <div class="ok">  ✓ discover   · 4 signables · deepest-first</div>
+            <div class="ok">  ✓ resign     · ad-hoc · post-order</div>
+            <div class="ok">  ✓ verify     · codesign --deep --strict</div>
+            <div class="ok">  ✓ launch     · survived 3.0s startup</div>
+            <div>&nbsp;</div>
+            <div class="hi">  → ~/Applications/cmux2.app</div>
+            <div class="out">    bundle id  com.cmux.app.cmux2</div>
+            <div class="out">    signed     ad-hoc (-)</div>
+            <div class="out">    elapsed    4.2s</div>
+            <div>&nbsp;</div>
+            <div><span class="prompt">$</span> <span class="cursor"></span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="how">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="section-label"><span class="i-en">Anatomy</span><span class="i-zh">解剖</span></span>
+      <h2 class="section-title">
+        <span class="i-en">Six stages, each <em>does one thing well.</em></span>
+        <span class="i-zh">六个阶段，每个都<em>只把一件事做好。</em></span>
+      </h2>
+    </div>
+
+    <div class="how-grid">
+      <div class="how-cell">
+        <div class="step"><span class="n">1</span>copy</div>
+        <h4>
+          <span class="i-en">Bit-perfect <em>ditto</em></span>
+          <span class="i-zh"><em>ditto</em> · 比特级精确</span>
+        </h4>
+        <p>
+          <span class="i-en">Uses <code>/usr/bin/ditto</code> — the only macOS copy primitive that preserves xattrs, ACLs, and resource forks. <code>cp</code> silently loses them and the resulting bundle won't pass <code>codesign --strict</code>.</span>
+          <span class="i-zh">用 <code>/usr/bin/ditto</code> —— macOS 上唯一能完整保留 xattrs、ACL 和 resource fork 的复制原语。<code>cp</code> 会悄悄丢掉它们，结果 bundle 过不了 <code>codesign --strict</code>。</span>
+        </p>
+      </div>
+      <div class="how-cell">
+        <div class="step"><span class="n">2</span>plist</div>
+        <h4>
+          <span class="i-en">New <em>identity</em></span>
+          <span class="i-zh">新的<em>身份</em></span>
+        </h4>
+        <p>
+          <span class="i-en">Rewrites <code>CFBundleIdentifier</code>, <code>CFBundleName</code>, and the Electron helper IDs that embed the parent's bundle ID — the trick that lets Electron clones run side-by-side.</span>
+          <span class="i-zh">改写 <code>CFBundleIdentifier</code>、<code>CFBundleName</code>，以及嵌入父 ID 的 Electron helper ID —— 这就是 Electron 克隆能和原版并存运行的关键。</span>
+        </p>
+      </div>
+      <div class="how-cell">
+        <div class="step"><span class="n">3</span>entitlements</div>
+        <h4>
+          <span class="i-en">Trim the <em>team-bound</em></span>
+          <span class="i-zh">剪掉<em>绑身份</em>的 key</span>
+        </h4>
+        <p>
+          <span class="i-en">Extracts the source app's entitlements and strips identity-bound keys (<code>application-identifier</code>, keychain access groups, team-id) that would fail under an ad-hoc signature.</span>
+          <span class="i-zh">提取源 app 的 entitlements，剥离身份绑定的 key（<code>application-identifier</code>、keychain access groups、team-id）—— 它们在 ad-hoc 签名下会挂。</span>
+        </p>
+      </div>
+      <div class="how-cell">
+        <div class="step"><span class="n">4</span>discover</div>
+        <h4>
+          <span class="i-en">Walk the <em>tree</em></span>
+          <span class="i-zh">遍历<em>整棵树</em></span>
+        </h4>
+        <p>
+          <span class="i-en">Crawls <code>Frameworks</code>, <code>XPCServices</code>, <code>PlugIns</code>, <code>Helpers</code>, <code>LoginItems</code>. Sorts every signable deepest-first so the next stage can sign in the only order codesign accepts.</span>
+          <span class="i-zh">爬过 <code>Frameworks</code>、<code>XPCServices</code>、<code>PlugIns</code>、<code>Helpers</code>、<code>LoginItems</code>。所有可签名项按深度倒排 —— 这是下一阶段 codesign 唯一接受的顺序。</span>
+        </p>
+      </div>
+      <div class="how-cell">
+        <div class="step"><span class="n">5</span>resign</div>
+        <h4>
+          <span class="i-en">Ad-hoc, <em>post-order</em></span>
+          <span class="i-zh">Ad-hoc · <em>后序签名</em></span>
+        </h4>
+        <p>
+          <span class="i-en">Re-signs every signable with <code>codesign --sign -</code>. Deepest nested first, outermost bundle last. Local-launchable; not vendor-trust-valid — the same signature shape Xcode uses for dev builds.</span>
+          <span class="i-zh">用 <code>codesign --sign -</code> 对每个可签名项重签。最深的嵌套先签，最外层 bundle 最后。本地可启动；不具备厂商信任 —— 和 Xcode 给 dev build 用的是同一种签名。</span>
+        </p>
+      </div>
+      <div class="how-cell">
+        <div class="step"><span class="n">6</span>verify</div>
+        <h4>
+          <span class="i-en">Prove it <em>works</em></span>
+          <span class="i-zh">证明它<em>能跑</em></span>
+        </h4>
+        <p>
+          <span class="i-en">Runs <code>codesign --verify --deep --strict</code>, optional <code>spctl --assess</code>, and an optional 3-second launch test that confirms the clone survives its startup window.</span>
+          <span class="i-zh">跑 <code>codesign --verify --deep --strict</code>、可选的 <code>spctl --assess</code>，再加一次 3 秒启动测试 —— 确认克隆挺得过启动窗口。</span>
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- MATRIX -->
+<section class="matrix" id="matrix">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="section-label"><span class="i-en">Compatibility · real apps, real results</span><span class="i-zh">兼容性 · 真实 app · 真实结果</span></span>
+      <h2 class="section-title">
+        <span class="i-en">What clones <em>cleanly,</em> what doesn't.</span>
+        <span class="i-zh">哪些能<em>干净克隆</em>，哪些不能。</span>
+      </h2>
+      <p class="section-sub">
+        <span class="i-en">Re-verified with <code>--launch-test</code>. Swift and Rust apps are nearly trivial; Electron is per-app; self-integrity-checking apps will reject themselves.</span>
+        <span class="i-zh">已用 <code>--launch-test</code> 复测。Swift 和 Rust app 几乎一发即中；Electron 看具体应用；带强自检的 app 会自己拒绝自己。</span>
+      </p>
+    </div>
+
+    <div class="matrix-table">
+      <div class="mrow head">
+        <div><span class="i-en">App</span><span class="i-zh">应用</span></div>
+        <div><span class="i-en">Type</span><span class="i-zh">类型</span></div>
+        <div><span class="i-en">Cloned</span><span class="i-zh">克隆</span></div>
+        <div><span class="i-en">Launches</span><span class="i-zh">启动</span></div>
+        <div><span class="i-en">Notes</span><span class="i-zh">备注</span></div>
+      </div>
+
+      <div class="mrow">
+        <div class="app"><span class="ico"></span>Alacritty</div>
+        <div class="type"><span class="i-en">Rust · single-binary</span><span class="i-zh">Rust · 单二进制</span></div>
+        <div><span class="status ok"><span class="pill">✓</span><span class="i-en">pass</span><span class="i-zh">通过</span></span></div>
+        <div><span class="status ok"><span class="pill">✓</span><span class="i-en">pass</span><span class="i-zh">通过</span></span></div>
+        <div class="note"><span class="i-en">Cleanest case. No frameworks, no helpers.</span><span class="i-zh">最干净的情况。无框架、无 helper。</span></div>
+      </div>
+
+      <div class="mrow">
+        <div class="app"><span class="ico"></span>Ghostty</div>
+        <div class="type"><span class="i-en">Swift + C · Sparkle</span><span class="i-zh">Swift + C · Sparkle</span></div>
+        <div><span class="status ok"><span class="pill">✓</span><span class="i-en">pass</span><span class="i-zh">通过</span></span></div>
+        <div><span class="status ok"><span class="pill">✓</span><span class="i-en">pass</span><span class="i-zh">通过</span></span></div>
+        <div class="note"><span class="i-en">1 entitlement change. Sparkle present.</span><span class="i-zh">1 处 entitlement 改动。带 Sparkle。</span></div>
+      </div>
+
+      <div class="mrow">
+        <div class="app"><span class="ico"></span>cmux</div>
+        <div class="type"><span class="i-en">Swift + Sparkle</span><span class="i-zh">Swift + Sparkle</span></div>
+        <div><span class="status ok"><span class="pill">✓</span><span class="i-en">pass</span><span class="i-zh">通过</span></span></div>
+        <div><span class="status ok"><span class="pill">✓</span><span class="i-en">pass</span><span class="i-zh">通过</span></span></div>
+        <div class="note"><span class="i-en">Dock-tile plugin bundle ID rewritten.</span><span class="i-zh">Dock-tile 插件的 bundle ID 已改写。</span></div>
+      </div>
+
+      <div class="mrow">
+        <div class="app"><span class="ico"></span>Cherry Studio</div>
+        <div class="type"><span class="i-en">Electron · 9 signables</span><span class="i-zh">Electron · 9 个可签项</span></div>
+        <div><span class="status ok"><span class="pill">✓</span><span class="i-en">pass</span><span class="i-zh">通过</span></span></div>
+        <div><span class="status ok"><span class="pill">✓</span><span class="i-en">pass</span><span class="i-zh">通过</span></span></div>
+        <div class="note"><span class="i-en">Strips ElectronAsarIntegrity. Independent app-support dir.</span><span class="i-zh">剥离 ElectronAsarIntegrity。使用独立 app-support 目录。</span></div>
+      </div>
+
+      <div class="mrow">
+        <div class="app"><span class="ico"></span>BetterDisplay</div>
+        <div class="type"><span class="i-en">Swift + helpers</span><span class="i-zh">Swift + helpers</span></div>
+        <div><span class="status ok"><span class="pill">✓</span><span class="i-en">pass</span><span class="i-zh">通过</span></span></div>
+        <div><span class="status warn"><span class="pill">!</span><span class="i-en">caution</span><span class="i-zh">注意</span></span></div>
+        <div class="note"><span class="i-en">Launches, but menu-bar privileges may need re-grant.</span><span class="i-zh">可启动，但菜单栏权限可能需要重新授权。</span></div>
+      </div>
+
+      <div class="mrow">
+        <div class="app"><span class="ico"></span>LocalSend</div>
+        <div class="type"><span class="i-en">Flutter · 28 signables</span><span class="i-zh">Flutter · 28 个可签项</span></div>
+        <div><span class="status ok"><span class="pill">✓</span><span class="i-en">pass</span><span class="i-zh">通过</span></span></div>
+        <div><span class="status bad"><span class="pill">✕</span><span class="i-en">fails</span><span class="i-zh">失败</span></span></div>
+        <div class="note"><span class="i-en">Exits silently at ~2.5s. Sandbox + login-item findings.</span><span class="i-zh">约 2.5 秒静默退出。有沙盒和登录项 finding。</span></div>
+      </div>
+
+      <div class="mrow">
+        <div class="app"><span class="ico"></span>Claude</div>
+        <div class="type"><span class="i-en">Electron · asar integrity</span><span class="i-zh">Electron · asar 完整性</span></div>
+        <div><span class="status ok"><span class="pill">✓</span><span class="i-en">pass</span><span class="i-zh">通过</span></span></div>
+        <div><span class="status bad"><span class="pill">✕</span><span class="i-en">fails</span><span class="i-zh">失败</span></span></div>
+        <div class="note"><span class="i-en">Self-rejects on Resources/app.asar integrity.</span><span class="i-zh">在 Resources/app.asar 完整性校验处自我拒绝。</span></div>
+      </div>
+
+      <div class="mrow">
+        <div class="app"><span class="ico"></span>Google Chrome</div>
+        <div class="type"><span class="i-en">Chrome + framework helpers</span><span class="i-zh">Chrome + framework helpers</span></div>
+        <div><span class="status bad"><span class="pill">✕</span><span class="i-en">blocked</span><span class="i-zh">阻断</span></span></div>
+        <div><span class="status bad"><span class="pill">—</span><span class="i-en">n/a</span><span class="i-zh">—</span></span></div>
+        <div class="note"><span class="i-en">Source fails <code style="font-family:'Geist Mono',monospace;color:var(--pink)">codesign --strict</code> (FinderInfo xattrs). Doctor blocks it.</span><span class="i-zh">源 app 过不了 <code style="font-family:'Geist Mono',monospace;color:var(--pink)">codesign --strict</code>（FinderInfo xattrs）。Doctor 直接阻断。</span></div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- CAVEATS -->
+<section class="caveats" id="caveats">
+  <div class="wrap">
+    <div class="caveats-wrap">
+      <div>
+        <span class="section-label" style="color:var(--rose);">
+          <span class="i-en">What doppel <em>isn't</em></span>
+          <span class="i-zh">doppel <em>不是</em>什么</span>
+        </span>
+        <h2 class="section-title" style="margin-top:14px;">
+          <span class="i-en">Honest about the <em>edges.</em></span>
+          <span class="i-zh">诚实面对<em>边界。</em></span>
+        </h2>
+        <p class="section-sub">
+          <span class="i-en">doppel is for local multi-instance, isolated configuration, and clone testing on your own machine. The list below is not a roadmap; it's a perimeter.</span>
+          <span class="i-zh">doppel 面向本地多实例、隔离配置、在自己机器上测试克隆这些场景。下面这份清单不是路线图，是边界线。</span>
+        </p>
+      </div>
+
+      <div class="caveat-list">
+        <div class="caveat">
+          <span class="idx">01</span>
+          <div>
+            <h5>
+              <span class="i-en">Not a universal app multi-opener.</span>
+              <span class="i-zh">不是万能的 app 多开器。</span>
+            </h5>
+            <p>
+              <span class="i-en">Some apps self-check integrity and will refuse to launch the clone. doppel surfaces this honestly rather than papering over it.</span>
+              <span class="i-zh">部分 app 会自检完整性，拒绝启动克隆。doppel 会如实告知，而不是粉饰。</span>
+            </p>
+          </div>
+        </div>
+        <div class="caveat">
+          <span class="idx">02</span>
+          <div>
+            <h5>
+              <span class="i-en">Does not bypass Gatekeeper.</span>
+              <span class="i-zh">不绕过 Gatekeeper。</span>
+            </h5>
+            <p>
+              <span class="i-en">Ad-hoc signatures are <em>local-launchable</em>, not vendor-trust-valid. <code>spctl</code> will reject the clone — exactly as Apple expects for dev builds.</span>
+              <span class="i-zh">Ad-hoc 签名只是<em>本地可启动</em>，不具备厂商信任。<code>spctl</code> 会拒绝克隆 —— 这正是 Apple 对本地 dev build 的预期。</span>
+            </p>
+          </div>
+        </div>
+        <div class="caveat">
+          <span class="idx">03</span>
+          <div>
+            <h5>
+              <span class="i-en">Never modifies the source.</span>
+              <span class="i-zh">永不修改源 bundle。</span>
+            </h5>
+            <p>
+              <span class="i-en">The source bundle is treated strictly read-only across all six stages. Worst case, you delete the clone.</span>
+              <span class="i-zh">源 bundle 在六个阶段中全程严格只读。最坏情况就是删掉克隆。</span>
+            </p>
+          </div>
+        </div>
+        <div class="caveat">
+          <span class="idx">04</span>
+          <div>
+            <h5>
+              <span class="i-en">App Store apps are out of scope.</span>
+              <span class="i-zh">App Store 应用不在范围内。</span>
+            </h5>
+            <p>
+              <span class="i-en">Receipt validation, FairPlay protection, and team-bound entitlements make App Store apps a non-target for v1.</span>
+              <span class="i-zh">Receipt 校验、FairPlay 保护、绑 team 的 entitlements —— App Store app 不是 v1 的目标。</span>
+            </p>
+          </div>
+        </div>
+        <div class="caveat">
+          <span class="idx">05</span>
+          <div>
+            <h5>
+              <span class="i-en">Updaters will likely break.</span>
+              <span class="i-zh">自动更新通常会坏。</span>
+            </h5>
+            <p>
+              <span class="i-en">Sparkle-updated apps clone fine but the updater channel won't recognize the new identity. Treat clones as fixed snapshots.</span>
+              <span class="i-zh">用 Sparkle 自更新的 app 可以正常克隆，但更新渠道不认新身份。把克隆当成固定快照。</span>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-final">
+  <div class="wrap">
+    <h2>
+      <span class="i-en">Make a <em>doppelgänger.</em></span>
+      <span class="i-zh">造一个<em>分身。</em></span>
+    </h2>
+    <div class="cta-row">
+      <div class="install">
+        <span class="prompt">$</span>
+        <span class="cmd">brew install tt-a1i/tap/doppel</span>
+        <button class="copy-btn" data-copy="brew install tt-a1i/tap/doppel"><span class="i-en">Copy</span><span class="i-zh">复制</span></button>
+      </div>
+      <div class="install">
+        <span class="prompt">$</span>
+        <span class="cmd">go install github.com/tt-a1i/doppel/cmd/doppel@latest</span>
+        <button class="copy-btn" data-copy="go install github.com/tt-a1i/doppel/cmd/doppel@latest"><span class="i-en">Copy</span><span class="i-zh">复制</span></button>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div>
+        <div class="brand" style="margin-bottom:12px;"><span class="dot"></span>doppel</div>
+        <p>
+          <span class="i-en">A macOS-only tool to clone an <em style="font-family:'Instrument Serif',serif;font-style:italic;color:var(--ink-2);">.app</em> bundle into a separately-launchable instance. Public beta.</span>
+          <span class="i-zh">macOS 专用工具，把 <em style="font-family:'Instrument Serif',serif;font-style:italic;color:var(--ink-2);">.app</em> bundle 克隆为可独立启动的实例。公开 beta。</span>
+        </p>
+      </div>
+      <div>
+        <h6><span class="i-en">Product</span><span class="i-zh">产品</span></h6>
+        <a href="#pipeline"><span class="i-en">Pipeline</span><span class="i-zh">流水线</span></a>
+        <a href="#modes"><span class="i-en">Modes</span><span class="i-zh">两种模式</span></a>
+        <a href="#matrix"><span class="i-en">Compatibility</span><span class="i-zh">兼容性</span></a>
+        <a href="#caveats"><span class="i-en">Caveats</span><span class="i-zh">注意事项</span></a>
+      </div>
+      <div>
+        <h6><span class="i-en">Resources</span><span class="i-zh">资源</span></h6>
+        <a href="https://github.com/tt-a1i/doppel">GitHub</a>
+        <a href="https://github.com/tt-a1i/doppel/blob/main/docs/support-matrix.md"><span class="i-en">Support matrix</span><span class="i-zh">支持矩阵</span></a>
+        <a href="https://github.com/tt-a1i/doppel/blob/main/docs/failure-modes.md"><span class="i-en">Failure modes</span><span class="i-zh">失败模式</span></a>
+        <a href="https://github.com/tt-a1i/doppel/blob/main/docs/smoke-testing.md"><span class="i-en">Smoke testing</span><span class="i-zh">烟雾测试</span></a>
+      </div>
+      <div>
+        <h6><span class="i-en">Install</span><span class="i-zh">安装</span></h6>
+        <a href="https://github.com/tt-a1i/doppel#安装">Homebrew</a>
+        <a href="https://github.com/tt-a1i/doppel#go">go install</a>
+        <a href="https://github.com/tt-a1i/doppel#源码构建"><span class="i-en">From source</span><span class="i-zh">从源码构建</span></a>
+        <a href="https://github.com/tt-a1i/doppel/releases"><span class="i-en">Releases</span><span class="i-zh">发布版本</span></a>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <div>© 2026 · doppel · MIT</div>
+      <div><span class="i-en">public beta</span><span class="i-zh">公开 beta</span></div>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // ---------- copy buttons ----------
+  document.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const text = btn.dataset.copy;
+      try { await navigator.clipboard.writeText(text); } catch (e) {}
+      const orig = btn.textContent;
+      btn.textContent = 'Copied';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 1400);
+    });
+  });
+
+  // ---------- pipeline stage interaction ----------
+  const STAGE_DATA = {
+    en: [
+    {
+      num: 'Stage 01 · copy',
+      title: 'Faithful, byte-for-byte.',
+      desc: '<code>/usr/bin/ditto</code> preserves extended attributes, ACLs, and resource forks that a naïve <code>cp</code> would silently drop. The source bundle is treated read-only throughout the entire pipeline.',
+      code: '<span class="c"># stage 1 of 6</span>\n<span class="p">→</span> ditto /Applications/cmux.app ~/Applications/cmux2.app\n  <span class="g">✓</span> copied 2,847 entries  <span class="c">(214.3 MB)</span>\n  <span class="g">✓</span> xattrs preserved      <span class="c">(com.apple.quarantine stripped)</span>\n  <span class="g">✓</span> ACLs preserved\n  <span class="g">✓</span> resource forks intact'
+    },
+    {
+      num: 'Stage 02 · plist',
+      title: 'New identity, no collisions.',
+      desc: 'Rewrites <code>CFBundleIdentifier</code>, <code>CFBundleName</code>, <code>CFBundleDisplayName</code> — plus any Electron helper bundle IDs that embed the parent. This is what lets the clone live next to the original without macOS thinking they\'re the same app.',
+      code: '<span class="c"># stage 2 of 6</span>\n<span class="p">→</span> plutil -replace CFBundleIdentifier -string \\\n      com.cmux.app.cmux2 Info.plist\n  <span class="g">✓</span> CFBundleIdentifier     <span class="c">→ com.cmux.app.cmux2</span>\n  <span class="g">✓</span> CFBundleName           <span class="c">→ cmux2</span>\n  <span class="g">✓</span> CFBundleDisplayName    <span class="c">→ cmux2</span>\n  <span class="g">✓</span> helper bundles         <span class="c">→ 1 rewritten</span>'
+    },
+    {
+      num: 'Stage 03 · entitlements',
+      title: 'Strip the team-bound.',
+      desc: 'Extracts the source app\'s entitlements and removes identity-bound keys — <code>application-identifier</code>, <code>keychain-access-groups</code>, <code>com.apple.developer.team-identifier</code> — that would silently fail after an ad-hoc resign.',
+      code: '<span class="c"># stage 3 of 6</span>\n<span class="p">→</span> codesign -d --entitlements - cmux.app | filter\n  <span class="g">✓</span> extracted             <span class="c">21 keys</span>\n  <span class="a">↓</span> stripped              <span class="c">application-identifier</span>\n  <span class="a">↓</span> stripped              <span class="c">keychain-access-groups</span>\n  <span class="a">↓</span> stripped              <span class="c">com.apple.developer.team-identifier</span>\n  <span class="g">✓</span> 18 keys retained'
+    },
+    {
+      num: 'Stage 04 · discover',
+      title: 'Walk the signable tree.',
+      desc: 'Crawls <code>Contents/Frameworks</code>, <code>XPCServices</code>, <code>PlugIns</code>, <code>Helpers</code>, and <code>LoginItems</code>. Sorts every signable deepest-first — the only order <code>codesign</code> will accept for the next stage.',
+      code: '<span class="c"># stage 4 of 6</span>\n<span class="p">→</span> walk Contents/ · depth-sort\n  <span class="g">✓</span> Frameworks/Sparkle.framework/...\n  <span class="g">✓</span> Frameworks/Sparkle.framework/Versions/B/Autoupdate.app\n  <span class="g">✓</span> PlugIns/DockTile.plugin\n  <span class="g">✓</span> cmux2.app                  <span class="c">(outer bundle)</span>\n  <span class="c">4 signables · sorted deepest-first</span>'
+    },
+    {
+      num: 'Stage 05 · resign',
+      title: 'Ad-hoc, post-order.',
+      desc: 'Signs every discovered signable with <code>codesign --sign -</code> in post-order: deepest items first, outer bundle last. Locally launchable; <em>not</em> Gatekeeper-trusted — the same signature Xcode uses for dev builds.',
+      code: '<span class="c"># stage 5 of 6 · ad-hoc resign</span>\n<span class="p">→</span> codesign --sign - --force --preserve-metadata=... \\\n      --entitlements ents.plist [each signable]\n  <span class="g">✓</span> Sparkle bundle             <span class="c">(0.4s)</span>\n  <span class="g">✓</span> Autoupdate.app             <span class="c">(0.3s)</span>\n  <span class="g">✓</span> DockTile.plugin            <span class="c">(0.2s)</span>\n  <span class="g">✓</span> cmux2.app                  <span class="c">(0.6s)</span>'
+    },
+    {
+      num: 'Stage 06 · verify',
+      title: 'Prove the clone runs.',
+      desc: 'Runs <code>codesign --verify --deep --strict</code>, optional <code>spctl --assess</code>, and an optional 3-second launch test that confirms the clone survives its startup window before reporting success.',
+      code: '<span class="c"># stage 6 of 6</span>\n<span class="p">→</span> codesign --verify --deep --strict cmux2.app\n  <span class="g">✓</span> deep verify              <span class="c">passed</span>\n  <span class="g">✓</span> strict                   <span class="c">passed</span>\n  <span class="a">~</span> spctl --assess           <span class="c">rejected (ad-hoc, expected)</span>\n  <span class="g">✓</span> launch-test              <span class="c">survived 3.0s</span>\n\n<span class="g">→ ~/Applications/cmux2.app · ready</span>'
+    }
+    ],
+    zh: [
+    {
+      num: '阶段 01 · copy',
+      title: '逐字节忠实复制。',
+      desc: '<code>/usr/bin/ditto</code> 会保留 <code>cp</code> 会悄悄丢掉的扩展属性、ACL 和 resource fork。整条流水线中源 bundle 全程只读。',
+      code: '<span class="c"># 阶段 1 / 6</span>\n<span class="p">→</span> ditto /Applications/cmux.app ~/Applications/cmux2.app\n  <span class="g">✓</span> 已复制 2,847 项       <span class="c">(214.3 MB)</span>\n  <span class="g">✓</span> 保留 xattrs           <span class="c">(已剥离 com.apple.quarantine)</span>\n  <span class="g">✓</span> 保留 ACL\n  <span class="g">✓</span> resource fork 完好'
+    },
+    {
+      num: '阶段 02 · plist',
+      title: '新身份，不冲突。',
+      desc: '改写 <code>CFBundleIdentifier</code>、<code>CFBundleName</code>、<code>CFBundleDisplayName</code> —— 以及所有嵌入父 ID 的 Electron helper bundle ID。这就是让克隆能和原版并存、而不被 macOS 当作同一应用的关键。',
+      code: '<span class="c"># 阶段 2 / 6</span>\n<span class="p">→</span> plutil -replace CFBundleIdentifier -string \\\n      com.cmux.app.cmux2 Info.plist\n  <span class="g">✓</span> CFBundleIdentifier     <span class="c">→ com.cmux.app.cmux2</span>\n  <span class="g">✓</span> CFBundleName           <span class="c">→ cmux2</span>\n  <span class="g">✓</span> CFBundleDisplayName    <span class="c">→ cmux2</span>\n  <span class="g">✓</span> helper bundles         <span class="c">→ 已改写 1 个</span>'
+    },
+    {
+      num: '阶段 03 · entitlements',
+      title: '剥离绑身份的 key。',
+      desc: '从源 app 提取 entitlements，移除身份绑定的 key —— <code>application-identifier</code>、<code>keychain-access-groups</code>、<code>com.apple.developer.team-identifier</code> —— 它们在 ad-hoc 重签后会悄悄失败。',
+      code: '<span class="c"># 阶段 3 / 6</span>\n<span class="p">→</span> codesign -d --entitlements - cmux.app | filter\n  <span class="g">✓</span> 提取                  <span class="c">21 个 key</span>\n  <span class="a">↓</span> 剥离                  <span class="c">application-identifier</span>\n  <span class="a">↓</span> 剥离                  <span class="c">keychain-access-groups</span>\n  <span class="a">↓</span> 剥离                  <span class="c">com.apple.developer.team-identifier</span>\n  <span class="g">✓</span> 保留 18 个 key'
+    },
+    {
+      num: '阶段 04 · discover',
+      title: '遍历可签名树。',
+      desc: '扫描 <code>Contents/Frameworks</code>、<code>XPCServices</code>、<code>PlugIns</code>、<code>Helpers</code>、<code>LoginItems</code>。所有可签名项按深度倒排 —— 这是下一阶段 <code>codesign</code> 唯一接受的顺序。',
+      code: '<span class="c"># 阶段 4 / 6</span>\n<span class="p">→</span> 遍历 Contents/ · 按深度排序\n  <span class="g">✓</span> Frameworks/Sparkle.framework/...\n  <span class="g">✓</span> Frameworks/Sparkle.framework/Versions/B/Autoupdate.app\n  <span class="g">✓</span> PlugIns/DockTile.plugin\n  <span class="g">✓</span> cmux2.app                  <span class="c">(外层 bundle)</span>\n  <span class="c">共 4 项可签名 · 已按深度倒排</span>'
+    },
+    {
+      num: '阶段 05 · resign',
+      title: 'Ad-hoc，按后序。',
+      desc: '用 <code>codesign --sign -</code> 对每个可签名项重签，按后序：最深的先签，最外层 bundle 最后。本地可启动；<em>不</em>被 Gatekeeper 信任 —— 和 Xcode 给 dev build 用的是同一种签名。',
+      code: '<span class="c"># 阶段 5 / 6 · ad-hoc 重签</span>\n<span class="p">→</span> codesign --sign - --force --preserve-metadata=... \\\n      --entitlements ents.plist [每一项]\n  <span class="g">✓</span> Sparkle bundle             <span class="c">(0.4s)</span>\n  <span class="g">✓</span> Autoupdate.app             <span class="c">(0.3s)</span>\n  <span class="g">✓</span> DockTile.plugin            <span class="c">(0.2s)</span>\n  <span class="g">✓</span> cmux2.app                  <span class="c">(0.6s)</span>'
+    },
+    {
+      num: '阶段 06 · verify',
+      title: '证明克隆能跑。',
+      desc: '运行 <code>codesign --verify --deep --strict</code>、可选的 <code>spctl --assess</code>，以及一次可选的 3 秒启动测试 —— 确认克隆能挺过启动窗口，再报成功。',
+      code: '<span class="c"># 阶段 6 / 6</span>\n<span class="p">→</span> codesign --verify --deep --strict cmux2.app\n  <span class="g">✓</span> 深度校验                <span class="c">通过</span>\n  <span class="g">✓</span> strict                  <span class="c">通过</span>\n  <span class="a">~</span> spctl --assess          <span class="c">拒绝 (ad-hoc · 预期内)</span>\n  <span class="g">✓</span> 启动测试                <span class="c">挺过 3.0s</span>\n\n<span class="g">→ ~/Applications/cmux2.app · 就绪</span>'
+    }
+    ]
+  };
+
+  const stages = document.querySelectorAll('.stage');
+  const dNum = document.getElementById('d-num');
+  const dTitle = document.getElementById('d-title');
+  const dDesc = document.getElementById('d-desc');
+  const dCode = document.getElementById('d-code');
+
+  let currentLang = localStorage.getItem('doppel-lang') || 'en';
+  let currentStage = 0;
+
+  function setStage(i) {
+    currentStage = i;
+    stages.forEach((s, idx) => s.classList.toggle('active', idx === i));
+    const data = STAGE_DATA[currentLang][i];
+    dNum.textContent = data.num;
+    dTitle.textContent = data.title;
+    dDesc.innerHTML = data.desc;
+    dCode.innerHTML = data.code;
+  }
+
+  stages.forEach((s, i) => {
+    s.addEventListener('mouseenter', () => setStage(i));
+    s.addEventListener('click', () => setStage(i));
+  });
+
+  // ---------- language toggle ----------
+  function applyLang(lang) {
+    currentLang = lang;
+    document.body.classList.toggle('lang-en', lang === 'en');
+    document.body.classList.toggle('lang-zh', lang === 'zh');
+    document.documentElement.lang = lang === 'zh' ? 'zh' : 'en';
+    document.querySelectorAll('.lang-toggle button').forEach(b => {
+      b.classList.toggle('active', b.dataset.lang === lang);
+    });
+    setStage(currentStage);
+    localStorage.setItem('doppel-lang', lang);
+  }
+  document.querySelectorAll('.lang-toggle button').forEach(b => {
+    b.addEventListener('click', () => applyLang(b.dataset.lang));
+  });
+  applyLang(currentLang);
+
+  // auto-advance
+  let auto = 0;
+  let autoTimer = setInterval(() => {
+    auto = (auto + 1) % STAGE_DATA.en.length;
+    setStage(auto);
+  }, 3200);
+
+  // pause autoplay on hover, resume on leave
+  const pipelineEl = document.querySelector('.pipeline-stage');
+  pipelineEl.addEventListener('mouseenter', () => clearInterval(autoTimer));
+  pipelineEl.addEventListener('mouseleave', () => {
+    clearInterval(autoTimer);
+    autoTimer = setInterval(() => {
+      auto = (auto + 1) % STAGE_DATA.en.length;
+      setStage(auto);
+    }, 3200);
+  });
+</script>
+
+</body>
+</html>
